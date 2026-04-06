@@ -157,7 +157,7 @@ async function loadPlanificados() {
     try {
         console.log('📋 Cargando Planificados...');
         
-        const url = `${GAS_WEB_APP_URL}?action=getPlanificados`;
+        const url = `${GAS_WEB_APP_URL}?action=getPlan`;
         const response = await fetch(url);
         const result = await response.json();
         
@@ -231,7 +231,7 @@ async function loadPasados() {
     try {
         console.log('📊 Cargando Pasados...');
         
-        const url = `${GAS_WEB_APP_URL}?action=getPasados`;
+        const url = `${GAS_WEB_APP_URL}?action=getHistoricoEntrenamientos`;
         const response = await fetch(url);
         const result = await response.json();
         
