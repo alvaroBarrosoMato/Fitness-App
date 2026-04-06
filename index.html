@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asistente Personal de Fitness</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- HEADER / NAVEGACIÓN -->
+    <header class="header">
+        <div class="container">
+            <h1 class="header__title">💪 Mi Asistente de Fitness</h1>
+            <nav class="nav">
+                <button class="nav__btn nav__btn--active" data-tab="dashboard">Dashboard</button>
+                <button class="nav__btn" data-tab="entrenamientos">Entrenamientos</button>
+                <button class="nav__btn" data-tab="comidas">Nutrición</button>
+                <button class="nav__btn" data-tab="mediciones">Mediciones</button>
+                <button class="nav__btn" data-tab="registrar">Registrar</button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="main">
+        <div class="container">
+            
+            <!-- ============================================================ -->
+            <!-- TAB 1: DASHBOARD - Vista General -->
+            <!-- ============================================================ -->
+            <section id="dashboard" class="tab-content tab-content--active">
+                <h2>Dashboard</h2>
+                
+                <!-- Plan de la Semana -->
+                <div class="grid grid--2col">
+                    <!-- Plan de Entrenamientos -->
+                    <div class="card">
+                        <h3>📅 Plan de Entrenamientos</h3>
+                        <div id="planEntrenamientos" class="plan-list">
+                            <p class="loading">Cargando...</p>
+                        </div>
+                    </div>
+
+                    <!-- Plan de Comidas -->
+                    <div class="card">
+                        <h3>🍎 Plan de Comidas</h3>
+                        <div id="planComidas" class="plan-list">
+                            <p class="loading">Cargando...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progreso de Mediciones -->
+                <div class="card card--full">
+                    <h3>📊 Progreso (Últimas Mediciones)</h3>
+                    <div id="ultimasMediciones" class="mediciones-list">
+                        <p class="loading">Cargando...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- TAB 2: ENTRENAMIENTOS - Histórico -->
+            <!-- ============================================================ -->
+            <section id="entrenamientos" class="tab-content">
+                <h2>Histórico de Entrenamientos</h2>
+                <div class="card">
+                    <div id="historicoEntrenamientos" class="table-container">
+                        <p class="loading">Cargando histórico...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- TAB 3: COMIDAS - Histórico -->
+            <!-- ============================================================ -->
+            <section id="comidas" class="tab-content">
+                <h2>Histórico de Comidas</h2>
+                <div class="card">
+                    <div id="historicoComidas" class="table-container">
+                        <p class="loading">Cargando histórico...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- TAB 4: MEDICIONES - Vista detallada -->
+            <!-- ============================================================ -->
+            <section id="mediciones" class="tab-content">
+                <h2>Histórico de Mediciones</h2>
+                <div class="card">
+                    <div id="mediacionesDetalladas" class="table-container">
+                        <p class="loading">Cargando mediciones...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================================ -->
+            <!-- TAB 5: REGISTRAR - Formularios POST -->
+            <!-- ============================================================ -->
+            <section id="registrar" class="tab-content">
+                <h2>Registrar Nuevos Datos</h2>
+                
+                <!-- Tabs dentro del formulario -->
+                <div class="form-tabs">
+                    <button class="form-tab-btn form-tab-btn--active" data-form="form-entrenamiento">🏋️ Entrenamiento</button>
+                    <button class="form-tab-btn" data-form="form-comida">🍽️ Comida</button>
+                    <button class="form-tab-btn" data-form="form-medicion">⚖️ Medición</button>
+                </div>
+
+                <!-- FORMULARIO 1: REGISTRAR ENTRENAMIENTO -->
+                <form id="form-entrenamiento" class="form form--visible">
+                    <h3>Registrar Entrenamiento</h3>
+                    
+                    <div class="form-group">
+                        <label for="ent-fecha">Fecha *</label>
+                        <input type="date" id="ent-fecha" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ent-tipo">Tipo de Entrenamiento *</label>
+                        <select id="ent-tipo" required>
+                            <option value="">-- Selecciona --</option>
+                            <option value="Pecho y Tríceps">Pecho y Tríceps</option>
+                            <option value="Espalda y Bíceps">Espalda y Bíceps</option>
+                            <option value="Hombros">Hombros</option>
+                            <option value="Piernas">Piernas</option>
+                            <option value="Cardio">Cardio</option>
+                            <option value="Flexibilidad">Flexibilidad</option>
+                            <option value="HIIT">HIIT</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ent-duracion">Duración (minutos) *</label>
+                        <input type="number" id="ent-duracion" min="1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ent-detalles">Detalles / Pesos (ej: Bench 100kg x 8 reps)</label>
+                        <textarea id="ent-detalles" rows="3" placeholder="Describe los ejercicios realizados..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ent-notas">Notas</label>
+                        <textarea id="ent-notas" rows="2" placeholder="Cómo te sentiste, energía, etc..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn--primary">Guardar Entrenamiento</button>
+                    <div id="form-entrenamiento-feedback" class="feedback"></div>
+                </form>
+
+                <!-- FORMULARIO 2: REGISTRAR COMIDA -->
+                <form id="form-comida" class="form">
+                    <h3>Registrar Comida</h3>
+
+                    <div class="form-group">
+                        <label for="com-fecha">Fecha *</label>
+                        <input type="date" id="com-fecha" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="com-tipo">Tipo de Comida *</label>
+                        <select id="com-tipo" required>
+                            <option value="">-- Selecciona --</option>
+                            <option value="Desayuno">Desayuno</option>
+                            <option value="Almuerzo">Almuerzo</option>
+                            <option value="Merienda">Merienda</option>
+                            <option value="Cena">Cena</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="com-calorias">Calorías</label>
+                        <input type="number" id="com-calorias" min="0" placeholder="ej: 450">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="com-macros">Macros (Proteína/Carbohidratos/Grasas en gramos)</label>
+                        <input type="text" id="com-macros" placeholder="ej: 30g/45g/15g">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="com-descripcion">Descripción de la Comida</label>
+                        <textarea id="com-descripcion" rows="3" placeholder="Qué comiste..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn--primary">Guardar Comida</button>
+                    <div id="form-comida-feedback" class="feedback"></div>
+                </form>
+
+                <!-- FORMULARIO 3: REGISTRAR MEDICIÓN -->
+                <form id="form-medicion" class="form">
+                    <h3>Registrar Medición</h3>
+
+                    <div class="form-group">
+                        <label for="med-fecha">Fecha *</label>
+                        <input type="date" id="med-fecha" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="med-peso">Peso (kg)</label>
+                        <input type="number" id="med-peso" step="0.1" placeholder="ej: 85.5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="med-grasa">Grasa Corporal (%)</label>
+                        <input type="number" id="med-grasa" step="0.1" min="0" max="100" placeholder="ej: 18.5">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="med-cintura">Circunferencia Cintura (cm)</label>
+                        <input type="number" id="med-cintura" step="0.1" placeholder="ej: 82">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="med-notas">Notas</label>
+                        <textarea id="med-notas" rows="2" placeholder="Observaciones sobre tu medición..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn--primary">Guardar Medición</button>
+                    <div id="form-medicion-feedback" class="feedback"></div>
+                </form>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p>Asistente Personal de Fitness © 2024 | Datos almacenados en Google Sheets</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
