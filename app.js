@@ -13,7 +13,7 @@
 // ============================================================================
 
 // 📌 REEMPLAZA ESTO CON TU URL DEL WEB APP DE GOOGLE APPS SCRIPT
-const GAS_WEB_APP_URL = 'https://script.google.com/macros/d/AKfycbyTcNRnAbU85clI_0B-nxuRiZ2ZcnPxrd1euz4693fph6_KCj7Cgk60dHGIIXm8b0WSkw/exec';
+const GAS_WEB_APP_URL = 'https://script.googleusercontent.com/macros/d/AKfycbyTcNRnAbU85clI_0B-nxuRiZ2ZcnPxrd1euz4693fph6_KCj7Cgk60dHGIIXm8b0WSkw/exec';
 // Obtén esta URL al hacer Deploy > New deployment > Web app en Apps Script
 
 // Objeto para almacenar datos en caché
