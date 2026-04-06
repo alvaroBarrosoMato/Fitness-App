@@ -13,7 +13,7 @@
 // ============================================================================
 
 // 📌 REEMPLAZA ESTO CON TU URL DEL WEB APP DE GOOGLE APPS SCRIPT
-const GAS_WEB_APP_URL = 'https://script.googleusercontent.com/macros/echo?user_content_key=AWDtjMVZtujheqC2W2wr08Yx11lK8ygZpdbd01kNelHNDI14YNqgoXeXY9BkPODsTjKNm027OvG4nb3fsyDIaWx8eSITPTCSsHg_isAz2BKnHqoQWaNqMjU3lR25D5lXFa1buqDGpHw4VCmDhoY7X3ltLY1BOeBt8eQpaEMzn9u53HGKN_BLpr58DXRAYVDyYzvokB_rB0D7JqCO7HbBQhvbvBwzf1uCyqUKzBqS8fHoLWByHmnZrB0sD-KrCeH6lDrBfNombeFDOxza16UA618IxKf7xh_YHPNaLXrnr0dRKkFa64cS1pQ&lib=Mr7mvtpeu9kXVc8bGGSRM0mbxCQoQCmDM';
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/d/AKfycbyTcNRnAbU85clI_0B-nxuRiZ2ZcnPxrd1euz4693fph6_KCj7Cgk60dHGIIXm8b0WSkw/usercontent';
 // Obtén esta URL al hacer Deploy > New deployment > Web app en Apps Script
 
 // Objeto para almacenar datos en caché
