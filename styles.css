@@ -572,21 +572,168 @@ table tbody tr:nth-child(even) {
 }
 
 /* ============================================================================
-   UTILIDADES
+   ENTRADA RÁPIDA Y EDITOR DE EJERCICIOS
    ============================================================================ */
 
-.text-center {
+.quick-entry {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+@media (max-width: 768px) {
+    .quick-entry {
+        grid-template-columns: 1fr;
+    }
+}
+
+.workout-details {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background-color: var(--color-light);
+    border-radius: var(--radius-md);
+}
+
+.workout-details.hidden {
+    display: none;
+}
+
+.info-box {
+    background: white;
+    padding: var(--spacing-md);
+    border-left: 4px solid var(--color-primary);
+    margin-bottom: var(--spacing-lg);
+    border-radius: var(--radius-sm);
+}
+
+.exercises-editor {
+    margin: var(--spacing-lg) 0;
+}
+
+.exercises-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.exercise-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+    background: white;
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+}
+
+.exercise-name {
+    flex: 1;
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+}
+
+.exercise-sets {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--color-light);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+}
+
+.exercise-sets input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
     text-align: center;
 }
 
-.mt {
-    margin-top: var(--spacing-md);
+.exercise-sets span {
+    font-weight: bold;
+    color: var(--color-primary);
 }
 
-.mb {
+.btn--danger {
+    background-color: var(--color-danger);
+    color: white;
+}
+
+.btn--danger:hover {
+    background-color: #FF5252;
+}
+
+.btn--sm {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.btn--full {
+    width: 100%;
+}
+
+/* ============================================================================
+   PLANIFICADOR IA
+   ============================================================================ */
+
+.generated-plan {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background: var(--color-light);
+    border-radius: var(--radius-md);
+}
+
+.generated-plan.hidden {
+    display: none;
+}
+
+.plan-section {
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 2px solid var(--color-border);
+}
+
+.plan-section:last-child {
+    border-bottom: none;
+}
+
+.plan-section h5 {
+    color: var(--color-primary);
     margin-bottom: var(--spacing-md);
+    font-size: 18px;
 }
 
-.hidden {
-    display: none !important;
+.generated-items {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.generated-item {
+    background: white;
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--color-secondary);
+    box-shadow: var(--shadow-sm);
+}
+
+.generated-item h6 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-xs);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.generated-item p {
+    font-size: var(--font-size-sm);
+    margin: var(--spacing-xs) 0;
+    color: var(--color-text);
+}
+
+.generated-item small {
+    color: var(--color-text-light);
+    font-size: 12px;
 }

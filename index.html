@@ -13,10 +13,11 @@
             <h1 class="header__title">💪 Mi Asistente de Fitness</h1>
             <nav class="nav">
                 <button class="nav__btn nav__btn--active" data-tab="dashboard">Dashboard</button>
+                <button class="nav__btn" data-tab="entrada-rapida">⚡ Entrada Rápida</button>
                 <button class="nav__btn" data-tab="entrenamientos">Entrenamientos</button>
                 <button class="nav__btn" data-tab="comidas">Nutrición</button>
                 <button class="nav__btn" data-tab="mediciones">Mediciones</button>
-                <button class="nav__btn" data-tab="registrar">Registrar</button>
+                <button class="nav__btn" data-tab="ia-planner">🤖 Planificador IA</button>
             </nav>
         </div>
     </header>
@@ -60,9 +61,81 @@
             </section>
 
             <!-- ============================================================ -->
-            <!-- TAB 2: ENTRENAMIENTOS - Histórico -->
+            <!-- TAB 2: ENTRADA RÁPIDA - Registrar entrenamiento rápidamente -->
             <!-- ============================================================ -->
-            <section id="entrenamientos" class="tab-content">
+            <section id="entrada-rapida" class="tab-content">
+                <h2>⚡ Entrada Rápida de Entrenamientos</h2>
+                
+                <div class="quick-entry">
+                    <!-- SELECTOR DE ENTRENAMIENTO PROGRAMADO -->
+                    <div class="card">
+                        <h3>📅 Seleccionar Entrenamiento de la Agenda</h3>
+                        
+                        <div class="form-group">
+                            <label for="select-workout">Elige hoy's workout:</label>
+                            <select id="select-workout">
+                                <option value="">-- Selecciona un entrenamiento --</option>
+                            </select>
+                        </div>
+
+                        <div id="workout-details" class="workout-details hidden">
+                            <div class="info-box">
+                                <p><strong>Rutina:</strong> <span id="detail-rutina"></span></p>
+                                <p><strong>Objetivos:</strong> <span id="detail-objetivos"></span></p>
+                            </div>
+
+                            <!-- EDITOR DE EJERCICIOS -->
+                            <h4>📋 Ejercicios (Editable)</h4>
+                            <div id="exercises-editor" class="exercises-editor"></div>
+
+                            <button class="btn btn--primary btn--full" id="btn-save-quick-workout">
+                                Guardar Entrenamiento Rápido
+                            </button>
+                            <div id="quick-entry-feedback" class="feedback"></div>
+                        </div>
+                    </div>
+
+                    <!-- ENTRADA MANUAL RÁPIDA -->
+                    <div class="card">
+                        <h3>✏️ O Registrar Manualmente</h3>
+                        
+                        <div class="form-group">
+                            <label for="quick-tipo">Tipo de Entrenamiento:</label>
+                            <select id="quick-tipo">
+                                <option value="">-- Selecciona --</option>
+                                <option value="Pecho y Tríceps">Pecho y Tríceps</option>
+                                <option value="Espalda y Bíceps">Espalda y Bíceps</option>
+                                <option value="Hombros">Hombros</option>
+                                <option value="Piernas">Piernas</option>
+                                <option value="Cardio">Cardio</option>
+                                <option value="Flexibilidad">Flexibilidad</option>
+                                <option value="HIIT">HIIT</option>
+                                <option value="Personalizado">Personalizado</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quick-duracion">Duración (minutos):</label>
+                            <input type="number" id="quick-duracion" min="1" placeholder="ej: 90">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quick-detalles">Detalles (ejercicios + series):</label>
+                            <textarea id="quick-detalles" rows="4" placeholder="Ej: Bench 4x6x60kg, Incline 3x8x50kg..."></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quick-notas">Notas:</label>
+                            <input type="text" id="quick-notas" placeholder="Cómo te sentiste...">
+                        </div>
+
+                        <button class="btn btn--secondary btn--full" id="btn-save-manual-workout">
+                            Guardar Entrenamiento Manual
+                        </button>
+                        <div id="manual-entry-feedback" class="feedback"></div>
+                    </div>
+                </div>
+            </section>
                 <h2>Histórico de Entrenamientos</h2>
                 <div class="card">
                     <div id="historicoEntrenamientos" class="table-container">
@@ -96,9 +169,58 @@
             </section>
 
             <!-- ============================================================ -->
-            <!-- TAB 5: REGISTRAR - Formularios POST -->
+            <!-- TAB 6: PLANIFICADOR IA - Crear planes con IA -->
             <!-- ============================================================ -->
-            <section id="registrar" class="tab-content">
+            <section id="ia-planner" class="tab-content">
+                <h2>🤖 Planificador de Entrenamientos y Nutrición IA</h2>
+                
+                <div class="card">
+                    <h3>Crea planes personalizados usando IA</h3>
+                    <p style="color: #666; margin-bottom: 20px;">
+                        💡 Escribe en lenguaje natural qué tipo de plan necesitas.<br>
+                        La IA creará automáticamente tu plan de entrenamiento y nutrición.
+                    </p>
+
+                    <div class="form-group">
+                        <label for="ia-prompt">Describe tu plan (ej: "Necesito un plan de 6 días enfocado en hipertrofia de pecho y espalda"):</label>
+                        <textarea id="ia-prompt" rows="5" placeholder="Cuéntame qué tipo de plan quieres..."></textarea>
+                    </div>
+
+                    <button class="btn btn--primary btn--full" id="btn-generate-plan">
+                        🚀 Generar Plan con IA
+                    </button>
+                    <div id="ia-feedback" class="feedback"></div>
+
+                    <!-- RESULTADO DEL PLAN GENERADO -->
+                    <div id="generated-plan" class="generated-plan hidden">
+                        <h4>📊 Plan Generado</h4>
+                        
+                        <!-- Entrenamientos -->
+                        <div class="plan-section">
+                            <h5>🏋️ Entrenamientos</h5>
+                            <div id="generated-workouts" class="generated-items"></div>
+                            <button class="btn btn--secondary" id="btn-save-generated-workouts">
+                                💾 Guardar Entrenamientos
+                            </button>
+                        </div>
+
+                        <!-- Comidas -->
+                        <div class="plan-section">
+                            <h5>🍎 Nutrición</h5>
+                            <div id="generated-meals" class="generated-items"></div>
+                            <button class="btn btn--secondary" id="btn-save-generated-meals">
+                                💾 Guardar Comidas
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API Status -->
+                <div class="card">
+                    <h4>🔌 Estado de Conexión</h4>
+                    <p id="api-status" style="color: #666;">Verificando conexión con API...</p>
+                </div>
+            </section>
                 <h2>Registrar Nuevos Datos</h2>
                 
                 <!-- Tabs dentro del formulario -->
