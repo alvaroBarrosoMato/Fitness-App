@@ -12,7 +12,7 @@
 // 🔧 CONFIGURACIÓN INICIAL
 // ============================================================================
 
-const GAS_WEB_APP_URL = 'https://script.google.com/macros/d/AKfycbz...../usercontent';
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyTcNRnAbU85clI_0B-nxuRiZ2ZcnPxrd1euz4693fph6_KCj7Cgk60dHGIIXm8b0WSkw/exec';
 const API_ENDPOINT = GAS_WEB_APP_URL; // Tu API de Google Apps Script
 
 const cache = {
