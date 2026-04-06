@@ -87,8 +87,9 @@ async function loadDashboard() {
         console.log('📦 Respuesta:', result);
         
         if (result.status === 'success') {
-            const planificados = result.data.planificados.entrenamientos || [];
-            const pasados = result.data.pasados.entrenamientos || [];
+            // CAMBIO AQUÍ - Acceder a planificados y pasados directamente
+            const planificados = result.data.planificados?.entrenamientos || [];
+            const pasados = result.data.pasados?.entrenamientos || [];
             
             cache.planificados = planificados;
             cache.pasados = pasados;
