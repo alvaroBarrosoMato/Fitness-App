@@ -30,12 +30,15 @@
   </header>
 
   <nav class="tabs">
-    <button id="tab-planned" class="active" data-view="planned">
-      <span class="num">01</span>Planeados
-    </button>
-    <button id="tab-past" data-view="past">
-      <span class="num">02</span>Pasados
-    </button>
+  <button id="tab-planned" class="active" data-view="planned">
+    <span class="num">01</span>Planeados
+  </button>
+  <button id="tab-past" data-view="past">
+    <span class="num">02</span>Pasados
+  </button>
+  <button id="tab-coach" data-view="coach">
+    <span class="num">03</span>Coach
+  </button>
   </nav>
 
   <div class="statusbar">
@@ -64,7 +67,35 @@
     <div id="list-past"></div>
   </section>
 </div>
-
+<section class="view" id="view-coach">
+  <div class="section-header">
+    <h2>Coach virtual</h2>
+    <div class="count">
+      <button id="coach-clear" class="coach-clear-btn" title="Limpiar conversación">Limpiar</button>
+    </div>
+  </div>
+ 
+  <div class="coach-shell">
+    <div class="coach-messages" id="coach-messages">
+      <div class="coach-empty">
+        <div class="big">01</div>
+        <p>Pregunta al coach. Puede consultar tus datos y proponer cambios en la rutina.</p>
+      </div>
+    </div>
+ 
+    <form class="coach-composer" id="coach-composer" autocomplete="off">
+      <textarea
+        id="coach-input"
+        rows="1"
+        placeholder="Escribe al coach…"
+        autocomplete="off"
+        autocorrect="off"
+      ></textarea>
+      <button type="submit" id="coach-send" aria-label="Enviar">→</button>
+    </form>
+  </div>
+</section>
+ 
 <!-- ============ FULL-SCREEN WORKOUT RUNNER ============ -->
 <div class="runner" id="runner">
   <header class="runner-head">
