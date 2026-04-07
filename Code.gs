@@ -1,582 +1,609 @@
 /**
- * ============================================================================
- * FITNESS APP - Google Apps Script Backend API
- * ============================================================================
+ * =============================================================================
+ *  FITNESS APP — API de Entrenamientos (Google Apps Script)
+ * =============================================================================
  *
- * Unified architecture: one single sheet "Entrenamientos" stores every
- * exercise row. Each row is one exercise of one workout. Workouts are
- * grouped logically by (Día + Rutina) on the client side.
+ *  MODELO DE DATOS
+ *  ---------------
+ *  La hoja "Entrenamientos" NO almacena entrenamientos como entidades, sino
+ *  FILAS de EJERCICIOS/SERIES. Un "entrenamiento" es la agrupación lógica de
+ *  todas las filas que comparten la misma combinación (Día + Rutina).
  *
- * Columns (in order):
- *   A: Día                          (Date, YYYY-MM-DD)
- *   B: Rutina                       (e.g. "Pecho y Tríceps")
- *   C: Ejercicio                    (e.g. "Bench Press Barra")
- *   D: Series                       (number)
- *   E: Reps                         (string, e.g. "8" or "8,8,6,6")
- *   F: KG / Detalles (Objetivo)     (target weight/detail, string)
- *   G: Objetivo / Notas             (notes about goal)
- *   H: KG / Detalles (Conseguidos)  (actual achieved, string)
- *   I: Estado                       ("Planeado" | "Completado" | "Fallado")
+ *  Columnas de la hoja (en este orden exacto):
+ *    A  Día                         (Date, YYYY-MM-DD)
+ *    B  Rutina                      (string, p.ej. "Pecho y Tríceps")
+ *    C  Ejercicio                   (string)
+ *    D  Series                      (number)
+ *    E  Reps                        (string, p.ej. "8", "6-8")
+ *    F  KG / Detalles (Objetivo)    (string, p.ej. "4x60kg, 3x55kg")
+ *    G  Objetivo / Notas            (string)
+ *    H  KG / Detalles (Conseguidos) (string)
+ *    I  Estado                      (string: Planeado | Fallido | Completado | Saltado)
  *
- * The API is intentionally generic so it can be consumed from the web UI,
- * AI agents, scripts, etc. All endpoints return JSON with:
- *   { status: "success" | "error", data: ... }
+ *  CONCEPTO "ENTRENAMIENTO"
+ *  ------------------------
+ *  Un entrenamiento = todas las filas con la misma (fecha, rutina).
+ *  El endpoint `getWorkouts` devuelve los ejercicios agrupados por entrenamiento.
+ *  El endpoint `getExercises` devuelve filas planas (útil para filtros finos).
+ *  El estado de un entrenamiento se deriva del estado de sus ejercicios:
+ *    - Todos iguales          → ese estado
+ *    - Alguno "Fallido"       → "Fallido"   (tiene prioridad: una sesión con algo fallido se marca como fallida)
+ *    - Mezcla Planeado + X    → estado mayoritario entre los no-Planeado
+ *    - Resto de mezclas       → estado mayoritario
  *
- * Endpoints:
- *   GET  ?action=ping
- *   GET  ?action=getAll
- *   GET  ?action=getExercises&estado=Planeado|Completado|Fallado
- *   GET  ?action=getWorkouts&estado=...
- *   GET  ?action=getWorkout&dia=YYYY-MM-DD&rutina=...
- *   POST action=createExercise       body: { exercise fields }
- *   POST action=createWorkout        body: { dia, rutina, ejercicios: [...] }
- *   POST action=updateExercise       body: { rowId, fields: {...} }
- *   POST action=updateExercisesBatch body: { updates: [{rowId, fields}, ...] }
- *   POST action=deleteExercise       body: { rowId }
- *   POST action=startWorkout         body: { dia, rutina }   (no-op, just fetch)
- *   POST action=completeWorkout      body: { dia, rutina, exercises: [{rowId, kgConseguidos, estado}] }
- *   POST action=setStatus            body: { rowId, estado }
+ *  IMPORTANTE PARA CLIENTES DE LA API
+ *  ----------------------------------
+ *  Al crear/modificar, piensa siempre en términos de FILAS DE EJERCICIOS.
+ *  Para crear un entrenamiento completo, envía el array `exercises` al
+ *  endpoint `createWorkout` y el script escribirá una fila por ejercicio.
  *
- * rowId is the 1-based sheet row number (header is row 1, first data is row 2).
- * ============================================================================
+ * =============================================================================
+ *  ENDPOINTS (via doGet / doPost con parámetro `action`)
+ * =============================================================================
+ *
+ *  GET  ?action=ping
+ *        Health check.
+ *
+ *  GET  ?action=getExercises&<filtros>
+ *        Devuelve filas planas. Filtros soportados (todos opcionales, AND):
+ *          - date=YYYY-MM-DD            (fecha exacta)
+ *          - dateFrom=YYYY-MM-DD        (rango inicio, inclusive)
+ *          - dateTo=YYYY-MM-DD          (rango fin, inclusive)
+ *          - routine=Pecho y Tríceps    (match exacto, case-insensitive)
+ *          - routineContains=pecho      (substring, case-insensitive)
+ *          - exercise=Bench Press Barra (match exacto, case-insensitive)
+ *          - exerciseContains=press     (substring, case-insensitive)
+ *          - status=Completado          (Planeado|Fallido|Completado|Saltado)
+ *          - statusIn=Planeado,Completado   (lista separada por comas)
+ *          - limit=50
+ *          - offset=0
+ *          - sort=date_desc             (date_asc|date_desc, default date_desc)
+ *
+ *  GET  ?action=getWorkouts&<filtros>
+ *        Igual que getExercises pero agrupado por (fecha, rutina).
+ *        Devuelve objetos: { date, routine, status, exerciseCount, exercises:[...] }
+ *
+ *  GET  ?action=getWorkout&date=YYYY-MM-DD&routine=...
+ *        Un solo entrenamiento (todas sus filas agrupadas).
+ *
+ *  GET  ?action=getRoutines
+ *        Lista de rutinas únicas existentes en la hoja.
+ *
+ *  GET  ?action=getStats&<filtros de fecha opcionales>
+ *        Totales: nº entrenamientos, nº ejercicios, desglose por estado,
+ *        desglose por rutina.
+ *
+ *  POST ?action=createWorkout
+ *        Body JSON:
+ *        {
+ *          "date": "2026-04-20",
+ *          "routine": "Piernas",
+ *          "status": "Planeado",              // opcional, default "Planeado"
+ *          "exercises": [
+ *            {
+ *              "exercise": "Sentadilla Barra",
+ *              "sets": 4,
+ *              "reps": "6-8",
+ *              "targetDetails": "4x80kg",
+ *              "notes": "Progresión",
+ *              "achievedDetails": "",         // opcional
+ *              "status": "Planeado"           // opcional, hereda del workout
+ *            }
+ *          ]
+ *        }
+ *
+ *  POST ?action=createExercise
+ *        Añade una sola fila de ejercicio.
+ *        Body JSON: { date, routine, exercise, sets, reps, targetDetails,
+ *                     notes, achievedDetails, status }
+ *
+ *  POST ?action=updateExercise
+ *        Actualiza una fila existente. Body JSON:
+ *        {
+ *          "match": { "date":"2026-04-14", "routine":"Espalda y Bíceps",
+ *                     "exercise":"Lat Pulldown (Jalón)" },
+ *          "updates": { "achievedDetails":"4x72.5kg", "status":"Completado" }
+ *        }
+ *        El `match` debe identificar UNA sola fila. Si hay varias coincidencias
+ *        devuelve error (usa `rowNumber` para ser explícito).
+ *        Alternativa: { "match": { "rowNumber": 15 }, "updates": {...} }
+ *
+ *  POST ?action=updateWorkout
+ *        Actualiza TODAS las filas de un entrenamiento.
+ *        Body JSON:
+ *        {
+ *          "match": { "date":"2026-04-14", "routine":"Espalda y Bíceps" },
+ *          "updates": { "status":"En Progreso" }           // aplica a todas las filas
+ *        }
+ *
+ *  POST ?action=deleteExercise
+ *        Body JSON: { "match": { "rowNumber": 15 } }
+ *        o { "match": { "date":..., "routine":..., "exercise":... } }
+ *
+ *  POST ?action=deleteWorkout
+ *        Body JSON: { "match": { "date":"2026-04-14", "routine":"..." } }
+ *        Borra todas las filas del entrenamiento.
+ *
+ *  RESPUESTA
+ *  ---------
+ *  Todas las respuestas son JSON con esta forma:
+ *    { "ok": true,  "data": <...> }
+ *    { "ok": false, "error": "mensaje" }
+ *
+ * =============================================================================
  */
 
 const SHEET_ID = '1q6GywCq5kVC26Qo2C6t2qLqcNj_ywX_s7EGyW50e4YM';
 const SHEET_NAME = 'Entrenamientos';
 
-const COLS = {
-  DIA: 0,
-  RUTINA: 1,
-  EJERCICIO: 2,
-  SERIES: 3,
-  REPS: 4,
-  KG_OBJETIVO: 5,
-  NOTAS: 6,
-  KG_CONSEGUIDOS: 7,
-  ESTADO: 8
+// Índices de columna (1-based, como los usa Sheets)
+const COL = {
+  DATE: 1,
+  ROUTINE: 2,
+  EXERCISE: 3,
+  SETS: 4,
+  REPS: 5,
+  TARGET_DETAILS: 6,
+  NOTES: 7,
+  ACHIEVED_DETAILS: 8,
+  STATUS: 9,
 };
+const NUM_COLS = 9;
+const HEADER_ROWS = 1;
 
-const HEADERS = [
-  'Día',
-  'Rutina',
-  'Ejercicio',
-  'Series',
-  'Reps',
-  'KG / Detalles (Objetivo)',
-  'Objetivo / Notas',
-  'KG / Detalles (Conseguidos)',
-  'Estado'
-];
-
-const ESTADOS = {
-  PLANEADO: 'Planeado',
-  COMPLETADO: 'Completado',
-  FALLADO: 'Fallado'
-};
+const VALID_STATUSES = ['Planeado', 'Fallido', 'Completado', 'Saltado'];
 
 // ============================================================================
-// ENTRY POINTS
+//  ENTRY POINTS
 // ============================================================================
 
 function doGet(e) {
-  return handleRequest(e, 'GET');
+  return handle_(e, null);
 }
 
 function doPost(e) {
-  return handleRequest(e, 'POST');
+  let body = null;
+  if (e && e.postData && e.postData.contents) {
+    try {
+      body = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonOut_({ ok: false, error: 'Invalid JSON body: ' + err.message });
+    }
+  }
+  return handle_(e, body);
 }
 
-function handleRequest(e, method) {
+function handle_(e, body) {
   try {
-    const params = (e && e.parameter) ? e.parameter : {};
-    let body = {};
-
-    if (method === 'POST' && e.postData && e.postData.contents) {
-      try {
-        body = JSON.parse(e.postData.contents);
-      } catch (err) {
-        body = {};
-      }
-    }
-
-    // Action can come from query string (?action=...) or JSON body
-    const action = params.action || body.action;
-    if (!action) return respond('error', 'Missing action parameter');
+    const params = (e && e.parameter) || {};
+    const action = params.action || (body && body.action);
+    if (!action) return jsonOut_({ ok: false, error: 'Missing `action` parameter' });
 
     switch (action) {
-      // --- Read endpoints ---
-      case 'ping':
-        return respond('success', { ok: true, time: new Date().toISOString() });
-
-      case 'getAll':
-        return respond('success', getAll());
-
-      case 'getExercises':
-        return respond('success', getExercises(params.estado || body.estado));
-
-      case 'getWorkouts':
-        return respond('success', getWorkouts(params.estado || body.estado));
-
-      case 'getWorkout':
-        return respond('success', getWorkout(
-          params.dia || body.dia,
-          params.rutina || body.rutina
-        ));
-
-      // --- Write endpoints (accept GET for AI-agent friendliness, prefer POST) ---
-      case 'createExercise':
-        return respond('success', createExercise(mergeParams(params, body)));
-
-      case 'createWorkout':
-        return respond('success', createWorkout(mergeParams(params, body)));
-
-      case 'updateExercise':
-        return respond('success', updateExercise(
-          Number(params.rowId || body.rowId),
-          body.fields || parseFieldsFromParams(params)
-        ));
-
-      case 'updateExercisesBatch':
-        return respond('success', updateExercisesBatch(body.updates || []));
-
-      case 'deleteExercise':
-        return respond('success', deleteExercise(Number(params.rowId || body.rowId)));
-
-      case 'startWorkout':
-        return respond('success', getWorkout(
-          params.dia || body.dia,
-          params.rutina || body.rutina
-        ));
-
-      case 'completeWorkout':
-        return respond('success', completeWorkout(mergeParams(params, body)));
-
-      case 'setStatus':
-        return respond('success', setStatus(
-          Number(params.rowId || body.rowId),
-          params.estado || body.estado
-        ));
-
+      case 'ping':            return jsonOut_({ ok: true, data: { pong: true, time: new Date().toISOString() } });
+      case 'getExercises':    return jsonOut_({ ok: true, data: getExercises_(params) });
+      case 'getWorkouts':     return jsonOut_({ ok: true, data: getWorkouts_(params) });
+      case 'getWorkout':      return jsonOut_({ ok: true, data: getWorkout_(params) });
+      case 'getRoutines':     return jsonOut_({ ok: true, data: getRoutines_() });
+      case 'getStats':        return jsonOut_({ ok: true, data: getStats_(params) });
+      case 'createWorkout':   return jsonOut_({ ok: true, data: createWorkout_(body) });
+      case 'createExercise':  return jsonOut_({ ok: true, data: createExercise_(body) });
+      case 'updateExercise':  return jsonOut_({ ok: true, data: updateExercise_(body) });
+      case 'updateWorkout':   return jsonOut_({ ok: true, data: updateWorkout_(body) });
+      case 'deleteExercise':  return jsonOut_({ ok: true, data: deleteExercise_(body) });
+      case 'deleteWorkout':   return jsonOut_({ ok: true, data: deleteWorkout_(body) });
       default:
-        return respond('error', 'Unknown action: ' + action);
+        return jsonOut_({ ok: false, error: 'Unknown action: ' + action });
     }
   } catch (err) {
-    return respond('error', err.toString() + (err.stack ? ('\n' + err.stack) : ''));
+    return jsonOut_({ ok: false, error: err.message, stack: err.stack });
   }
 }
 
+function jsonOut_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ============================================================================
-// SHEET HELPERS
+//  SHEET HELPERS
 // ============================================================================
 
-function getSheet() {
+function getSheet_() {
   const ss = SpreadsheetApp.openById(SHEET_ID);
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-    sheet.setFrozenRows(1);
-  }
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) throw new Error('Sheet not found: ' + SHEET_NAME);
   return sheet;
 }
 
-/** Convert any date-like cell value to a YYYY-MM-DD string. */
-function toDateString(value) {
-  if (value === null || value === undefined || value === '') return '';
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  const s = String(value).trim();
-  // If it's already a YYYY-MM-DD string, keep as-is.
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
-  // Try to parse
-  const parsed = new Date(s);
-  if (!isNaN(parsed.getTime())) {
-    return toDateString(parsed);
-  }
-  return s;
+/** Lee todas las filas de datos como objetos normalizados + rowNumber. */
+function readAllRows_() {
+  const sheet = getSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= HEADER_ROWS) return [];
+  const range = sheet.getRange(HEADER_ROWS + 1, 1, lastRow - HEADER_ROWS, NUM_COLS);
+  const values = range.getValues();
+  return values.map((row, idx) => rowToObject_(row, HEADER_ROWS + 1 + idx));
 }
 
-/**
- * Normalize potentially-date-corrupted fields back to strings.
- * Google Sheets sometimes turns things like "8-5" into Date objects.
- * For Reps / KG fields we always want the original textual representation.
- */
-function toPlainString(value) {
-  if (value === null || value === undefined) return '';
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    // Sheet wrongly auto-converted a string like "8,5" or "8-5" to a date.
-    // Return an ISO-ish fallback — but the frontend will prefer raw strings
-    // so the caller should use `.setNumberFormat("@")` on these columns.
-    return toDateString(value);
-  }
-  return String(value);
-}
-
-function rowToObject(row, rowIndex) {
+function rowToObject_(row, rowNumber) {
   return {
-    rowId: rowIndex, // 1-based sheet row number
-    'Día': toDateString(row[COLS.DIA]),
-    'Rutina': toPlainString(row[COLS.RUTINA]),
-    'Ejercicio': toPlainString(row[COLS.EJERCICIO]),
-    'Series': toPlainString(row[COLS.SERIES]),
-    'Reps': toPlainString(row[COLS.REPS]),
-    'KG / Detalles (Objetivo)': toPlainString(row[COLS.KG_OBJETIVO]),
-    'Objetivo / Notas': toPlainString(row[COLS.NOTAS]),
-    'KG / Detalles (Conseguidos)': toPlainString(row[COLS.KG_CONSEGUIDOS]),
-    'Estado': toPlainString(row[COLS.ESTADO]) || ESTADOS.PLANEADO
+    rowNumber: rowNumber,
+    date: formatDate_(row[COL.DATE - 1]),
+    routine: String(row[COL.ROUTINE - 1] || ''),
+    exercise: String(row[COL.EXERCISE - 1] || ''),
+    sets: row[COL.SETS - 1] === '' ? null : Number(row[COL.SETS - 1]),
+    reps: String(row[COL.REPS - 1] || ''),
+    targetDetails: String(row[COL.TARGET_DETAILS - 1] || ''),
+    notes: String(row[COL.NOTES - 1] || ''),
+    achievedDetails: String(row[COL.ACHIEVED_DETAILS - 1] || ''),
+    status: String(row[COL.STATUS - 1] || ''),
   };
 }
 
-function readAllRows() {
-  const sheet = getSheet();
-  const range = sheet.getDataRange();
-  const values = range.getValues();
-  if (values.length < 2) return [];
-  const out = [];
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    // Skip fully empty rows
-    if (row.every(cell => cell === '' || cell === null)) continue;
-    out.push(rowToObject(row, i + 1)); // +1 because sheet rows are 1-based
+function objectToRow_(obj) {
+  const row = new Array(NUM_COLS).fill('');
+  row[COL.DATE - 1] = obj.date ? parseDate_(obj.date) : '';
+  row[COL.ROUTINE - 1] = obj.routine || '';
+  row[COL.EXERCISE - 1] = obj.exercise || '';
+  row[COL.SETS - 1] = obj.sets == null || obj.sets === '' ? '' : Number(obj.sets);
+  row[COL.REPS - 1] = obj.reps == null ? '' : String(obj.reps);
+  row[COL.TARGET_DETAILS - 1] = obj.targetDetails || '';
+  row[COL.NOTES - 1] = obj.notes || '';
+  row[COL.ACHIEVED_DETAILS - 1] = obj.achievedDetails || '';
+  row[COL.STATUS - 1] = obj.status || 'Planeado';
+  return row;
+}
+
+function formatDate_(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    const tz = Session.getScriptTimeZone() || 'Europe/Madrid';
+    return Utilities.formatDate(val, tz, 'yyyy-MM-dd');
   }
+  return String(val);
+}
+
+function parseDate_(val) {
+  if (val instanceof Date) return val;
+  // Espera YYYY-MM-DD
+  const m = String(val).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) throw new Error('Invalid date (expected YYYY-MM-DD): ' + val);
+  // Crear como fecha local al mediodía para evitar desfases de timezone
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+}
+
+// ============================================================================
+//  FILTROS
+// ============================================================================
+
+function applyFilters_(rows, params) {
+  let out = rows;
+
+  if (params.date) {
+    out = out.filter(r => r.date === params.date);
+  }
+  if (params.dateFrom) {
+    out = out.filter(r => r.date >= params.dateFrom);
+  }
+  if (params.dateTo) {
+    out = out.filter(r => r.date <= params.dateTo);
+  }
+  if (params.routine) {
+    const v = params.routine.toLowerCase();
+    out = out.filter(r => r.routine.toLowerCase() === v);
+  }
+  if (params.routineContains) {
+    const v = params.routineContains.toLowerCase();
+    out = out.filter(r => r.routine.toLowerCase().indexOf(v) !== -1);
+  }
+  if (params.exercise) {
+    const v = params.exercise.toLowerCase();
+    out = out.filter(r => r.exercise.toLowerCase() === v);
+  }
+  if (params.exerciseContains) {
+    const v = params.exerciseContains.toLowerCase();
+    out = out.filter(r => r.exercise.toLowerCase().indexOf(v) !== -1);
+  }
+  if (params.status) {
+    out = out.filter(r => r.status === params.status);
+  }
+  if (params.statusIn) {
+    const set = params.statusIn.split(',').map(s => s.trim());
+    out = out.filter(r => set.indexOf(r.status) !== -1);
+  }
+
+  // Sort
+  const sort = params.sort || 'date_desc';
+  if (sort === 'date_asc') {
+    out.sort((a, b) => a.date.localeCompare(b.date) || a.rowNumber - b.rowNumber);
+  } else {
+    out.sort((a, b) => b.date.localeCompare(a.date) || a.rowNumber - b.rowNumber);
+  }
+
+  // Pagination
+  const offset = params.offset ? parseInt(params.offset, 10) : 0;
+  const limit = params.limit ? parseInt(params.limit, 10) : 0;
+  if (limit > 0) {
+    out = out.slice(offset, offset + limit);
+  } else if (offset > 0) {
+    out = out.slice(offset);
+  }
+
   return out;
 }
 
 // ============================================================================
-// READ OPERATIONS
+//  READ ENDPOINTS
 // ============================================================================
 
-function getExercises(estadoFilter) {
-  const rows = readAllRows();
-  if (!estadoFilter) return { ejercicios: rows };
-  const filtered = rows.filter(r => r.Estado === estadoFilter);
-  return { ejercicios: filtered };
+function getExercises_(params) {
+  const rows = readAllRows_();
+  return applyFilters_(rows, params);
 }
 
-/** Group exercises into workouts keyed by Día + Rutina. */
-function getWorkouts(estadoFilter) {
-  const rows = readAllRows();
-  const filtered = estadoFilter ? rows.filter(r => r.Estado === estadoFilter) : rows;
-  const groups = {};
-  filtered.forEach(ex => {
-    const key = `${ex['Día']}__${ex['Rutina']}`;
-    if (!groups[key]) {
-      groups[key] = {
-        dia: ex['Día'],
-        rutina: ex['Rutina'],
-        ejercicios: [],
-        estado: ex['Estado']
-      };
+function getWorkouts_(params) {
+  const rows = applyFilters_(readAllRows_(), params);
+  return groupIntoWorkouts_(rows);
+}
+
+function getWorkout_(params) {
+  if (!params.date || !params.routine) {
+    throw new Error('getWorkout requires `date` and `routine` params');
+  }
+  const rows = readAllRows_().filter(
+    r => r.date === params.date && r.routine.toLowerCase() === params.routine.toLowerCase()
+  );
+  if (rows.length === 0) return null;
+  return groupIntoWorkouts_(rows)[0];
+}
+
+function groupIntoWorkouts_(rows) {
+  const map = {};
+  rows.forEach(r => {
+    const key = r.date + '||' + r.routine;
+    if (!map[key]) {
+      map[key] = { date: r.date, routine: r.routine, exercises: [] };
     }
-    groups[key].ejercicios.push(ex);
+    map[key].exercises.push(r);
   });
-  const workouts = Object.values(groups).sort((a, b) => {
-    return (b.dia || '').localeCompare(a.dia || '');
+  const workouts = Object.keys(map).map(k => {
+    const w = map[k];
+    w.exerciseCount = w.exercises.length;
+    w.status = deriveWorkoutStatus_(w.exercises);
+    return w;
   });
-  return { workouts };
+  workouts.sort((a, b) => b.date.localeCompare(a.date) || a.routine.localeCompare(b.routine));
+  return workouts;
 }
 
-function getWorkout(dia, rutina) {
-  if (!dia) throw new Error('dia is required');
-  const normalizedDia = toDateString(dia);
-  const rows = readAllRows();
-  const matches = rows.filter(r => {
-    if (r['Día'] !== normalizedDia) return false;
-    if (rutina && r['Rutina'] !== rutina) return false;
+function deriveWorkoutStatus_(exercises) {
+  if (!exercises.length) return '';
+  const statuses = exercises.map(e => e.status);
+  const allSame = statuses.every(s => s === statuses[0]);
+  if (allSame) return statuses[0];
+  // "Fallido" tiene prioridad: si algo falló, el entrenamiento se considera fallido
+  if (statuses.indexOf('Fallido') !== -1) return 'Fallido';
+  // Estado mayoritario entre el resto
+  const counts = {};
+  statuses.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+  let best = statuses[0];
+  Object.keys(counts).forEach(s => {
+    if (counts[s] > counts[best]) best = s;
+  });
+  return best;
+}
+
+function getRoutines_() {
+  const rows = readAllRows_();
+  const set = {};
+  rows.forEach(r => { if (r.routine) set[r.routine] = true; });
+  return Object.keys(set).sort();
+}
+
+function getStats_(params) {
+  const rows = applyFilters_(readAllRows_(), params);
+  const workouts = groupIntoWorkouts_(rows);
+
+  const byStatus = {};
+  VALID_STATUSES.forEach(s => byStatus[s] = 0);
+  rows.forEach(r => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+
+  const byRoutine = {};
+  rows.forEach(r => {
+    if (!byRoutine[r.routine]) byRoutine[r.routine] = { exercises: 0, workouts: 0 };
+    byRoutine[r.routine].exercises += 1;
+  });
+  workouts.forEach(w => {
+    if (byRoutine[w.routine]) byRoutine[w.routine].workouts += 1;
+  });
+
+  return {
+    totalWorkouts: workouts.length,
+    totalExercises: rows.length,
+    byStatus: byStatus,
+    byRoutine: byRoutine,
+  };
+}
+
+// ============================================================================
+//  WRITE ENDPOINTS
+// ============================================================================
+
+function validateStatus_(status) {
+  if (status && VALID_STATUSES.indexOf(status) === -1) {
+    throw new Error('Invalid status. Must be one of: ' + VALID_STATUSES.join(', '));
+  }
+}
+
+function createWorkout_(body) {
+  if (!body) throw new Error('Missing body');
+  if (!body.date) throw new Error('`date` is required');
+  if (!body.routine) throw new Error('`routine` is required');
+  if (!Array.isArray(body.exercises) || body.exercises.length === 0) {
+    throw new Error('`exercises` must be a non-empty array');
+  }
+  const defaultStatus = body.status || 'Planeado';
+  validateStatus_(defaultStatus);
+
+  const sheet = getSheet_();
+  const rows = body.exercises.map(ex => {
+    validateStatus_(ex.status);
+    return objectToRow_({
+      date: body.date,
+      routine: body.routine,
+      exercise: ex.exercise,
+      sets: ex.sets,
+      reps: ex.reps,
+      targetDetails: ex.targetDetails,
+      notes: ex.notes,
+      achievedDetails: ex.achievedDetails,
+      status: ex.status || defaultStatus,
+    });
+  });
+
+  const startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, NUM_COLS).setValues(rows);
+
+  return {
+    created: rows.length,
+    startRow: startRow,
+    endRow: startRow + rows.length - 1,
+    workout: { date: body.date, routine: body.routine, exerciseCount: rows.length },
+  };
+}
+
+function createExercise_(body) {
+  if (!body) throw new Error('Missing body');
+  if (!body.date || !body.routine || !body.exercise) {
+    throw new Error('`date`, `routine` and `exercise` are required');
+  }
+  validateStatus_(body.status);
+
+  const sheet = getSheet_();
+  const row = objectToRow_({
+    date: body.date,
+    routine: body.routine,
+    exercise: body.exercise,
+    sets: body.sets,
+    reps: body.reps,
+    targetDetails: body.targetDetails,
+    notes: body.notes,
+    achievedDetails: body.achievedDetails,
+    status: body.status || 'Planeado',
+  });
+  const rowNumber = sheet.getLastRow() + 1;
+  sheet.getRange(rowNumber, 1, 1, NUM_COLS).setValues([row]);
+  return { created: 1, rowNumber: rowNumber };
+}
+
+/** Encuentra filas que coinciden con un objeto match. */
+function findMatchingRows_(match) {
+  if (!match) throw new Error('`match` is required');
+  const all = readAllRows_();
+  if (match.rowNumber) {
+    return all.filter(r => r.rowNumber === Number(match.rowNumber));
+  }
+  return all.filter(r => {
+    if (match.date && r.date !== match.date) return false;
+    if (match.routine && r.routine.toLowerCase() !== match.routine.toLowerCase()) return false;
+    if (match.exercise && r.exercise.toLowerCase() !== match.exercise.toLowerCase()) return false;
+    if (match.status && r.status !== match.status) return false;
     return true;
   });
-  return {
-    dia: normalizedDia,
-    rutina: rutina || (matches[0] && matches[0].Rutina) || '',
-    ejercicios: matches
-  };
 }
 
-function getAll() {
-  const rows = readAllRows();
-  const planeados = rows.filter(r => r.Estado === ESTADOS.PLANEADO);
-  const completados = rows.filter(r => r.Estado === ESTADOS.COMPLETADO);
-  const fallados = rows.filter(r => r.Estado === ESTADOS.FALLADO);
-  return {
-    total: rows.length,
-    ejercicios: rows,
-    planeados: { ejercicios: planeados },
-    completados: { ejercicios: completados },
-    fallados: { ejercicios: fallados }
-  };
-}
+/** Mapeo de claves del API → índice de columna. */
+const FIELD_TO_COL = {
+  date: COL.DATE,
+  routine: COL.ROUTINE,
+  exercise: COL.EXERCISE,
+  sets: COL.SETS,
+  reps: COL.REPS,
+  targetDetails: COL.TARGET_DETAILS,
+  notes: COL.NOTES,
+  achievedDetails: COL.ACHIEVED_DETAILS,
+  status: COL.STATUS,
+};
 
-// ============================================================================
-// WRITE OPERATIONS
-// ============================================================================
-
-/** Build a row array from a fields object (using Spanish header keys or aliases). */
-function fieldsToRow(fields) {
-  const get = (keys, fallback) => {
-    for (let i = 0; i < keys.length; i++) {
-      if (fields[keys[i]] !== undefined && fields[keys[i]] !== null) return fields[keys[i]];
-    }
-    return fallback;
-  };
-
-  return [
-    toDateString(get(['Día', 'dia', 'date', 'fecha'], '')),
-    get(['Rutina', 'rutina'], ''),
-    get(['Ejercicio', 'ejercicio'], ''),
-    get(['Series', 'series', 'sets'], ''),
-    get(['Reps', 'reps', 'repeticiones'], ''),
-    get(['KG / Detalles (Objetivo)', 'kgObjetivo', 'kg_objetivo', 'objetivoKg'], ''),
-    get(['Objetivo / Notas', 'notas', 'objetivo', 'notes'], ''),
-    get(['KG / Detalles (Conseguidos)', 'kgConseguidos', 'kg_conseguidos'], ''),
-    get(['Estado', 'estado', 'status'], ESTADOS.PLANEADO)
-  ];
-}
-
-/** Force text-format the columns that must stay as strings, to avoid Google Sheets auto-converting things like "8-5" into a Date. */
-function ensureTextColumns(sheet) {
-  const lastRow = Math.max(sheet.getLastRow(), 2);
-  // Series, Reps, KG Objetivo, KG Conseguidos — columns D, E, F, H
-  sheet.getRange(2, COLS.SERIES + 1, lastRow, 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.REPS + 1, lastRow, 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.KG_OBJETIVO + 1, lastRow, 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.KG_CONSEGUIDOS + 1, lastRow, 1).setNumberFormat('@');
-}
-
-function createExercise(fields) {
-  const sheet = getSheet();
-  ensureTextColumns(sheet);
-  const row = fieldsToRow(fields);
-  sheet.appendRow(row);
-  const rowId = sheet.getLastRow();
-  return { rowId, ejercicio: rowToObject(row, rowId) };
-}
-
-function createWorkout(payload) {
-  if (!payload || !payload.dia || !payload.rutina) {
-    throw new Error('createWorkout requires dia and rutina');
-  }
-  const ejercicios = payload.ejercicios || [];
-  if (!Array.isArray(ejercicios) || ejercicios.length === 0) {
-    throw new Error('createWorkout requires at least one ejercicio');
-  }
-  const sheet = getSheet();
-  ensureTextColumns(sheet);
-  const rows = ejercicios.map(ex => fieldsToRow(Object.assign({
-    'Día': payload.dia,
-    'Rutina': payload.rutina,
-    'Estado': payload.estado || ESTADOS.PLANEADO
-  }, ex)));
-  const startRow = sheet.getLastRow() + 1;
-  sheet.getRange(startRow, 1, rows.length, HEADERS.length).setValues(rows);
-  const created = rows.map((r, i) => rowToObject(r, startRow + i));
-  return {
-    dia: toDateString(payload.dia),
-    rutina: payload.rutina,
-    ejercicios: created
-  };
-}
-
-/** Partial update of an exercise row. `fields` may contain any subset of the columns (using Spanish header names or alias keys). */
-function updateExercise(rowId, fields) {
-  if (!rowId || rowId < 2) throw new Error('Invalid rowId: ' + rowId);
-  if (!fields || typeof fields !== 'object') throw new Error('fields object required');
-
-  const sheet = getSheet();
-  ensureTextColumns(sheet);
-  const range = sheet.getRange(rowId, 1, 1, HEADERS.length);
-  const current = range.getValues()[0];
-
-  // Build merged fields using existing values as defaults
-  const currentObj = rowToObject(current, rowId);
-  const merged = Object.assign({}, currentObj, fields);
-  // Normalize alias keys: if caller sent `kgConseguidos`, map it in
-  const aliasMap = {
-    dia: 'Día', rutina: 'Rutina', ejercicio: 'Ejercicio',
-    series: 'Series', reps: 'Reps',
-    kgObjetivo: 'KG / Detalles (Objetivo)',
-    kg_objetivo: 'KG / Detalles (Objetivo)',
-    notas: 'Objetivo / Notas',
-    kgConseguidos: 'KG / Detalles (Conseguidos)',
-    kg_conseguidos: 'KG / Detalles (Conseguidos)',
-    estado: 'Estado', status: 'Estado'
-  };
-  Object.keys(aliasMap).forEach(k => {
-    if (fields[k] !== undefined) merged[aliasMap[k]] = fields[k];
+function applyUpdatesToRow_(sheet, rowNumber, updates) {
+  Object.keys(updates).forEach(key => {
+    const colIdx = FIELD_TO_COL[key];
+    if (!colIdx) return; // ignora claves desconocidas
+    let val = updates[key];
+    if (key === 'status') validateStatus_(val);
+    if (key === 'date' && val) val = parseDate_(val);
+    if (key === 'sets' && val !== '' && val != null) val = Number(val);
+    sheet.getRange(rowNumber, colIdx).setValue(val == null ? '' : val);
   });
-
-  const newRow = fieldsToRow(merged);
-  range.setValues([newRow]);
-  return { rowId, ejercicio: rowToObject(newRow, rowId) };
 }
 
-function updateExercisesBatch(updates) {
-  if (!Array.isArray(updates)) throw new Error('updates must be an array');
-  const results = updates.map(u => updateExercise(Number(u.rowId), u.fields || {}));
-  return { updated: results.length, ejercicios: results.map(r => r.ejercicio) };
-}
-
-function deleteExercise(rowId) {
-  if (!rowId || rowId < 2) throw new Error('Invalid rowId: ' + rowId);
-  const sheet = getSheet();
-  sheet.deleteRow(rowId);
-  return { rowId, deleted: true };
-}
-
-function setStatus(rowId, estado) {
-  if (!estado) throw new Error('estado is required');
-  const valid = Object.values(ESTADOS);
-  if (valid.indexOf(estado) === -1) {
-    throw new Error('Invalid estado. Must be one of: ' + valid.join(', '));
+function updateExercise_(body) {
+  if (!body || !body.match || !body.updates) {
+    throw new Error('Body must include `match` and `updates`');
   }
-  return updateExercise(rowId, { Estado: estado });
+  const matches = findMatchingRows_(body.match);
+  if (matches.length === 0) throw new Error('No rows matched');
+  if (matches.length > 1) {
+    throw new Error('Match is ambiguous (' + matches.length + ' rows). Use `rowNumber` or narrow the match.');
+  }
+  const sheet = getSheet_();
+  applyUpdatesToRow_(sheet, matches[0].rowNumber, body.updates);
+  return { updated: 1, rowNumber: matches[0].rowNumber };
 }
 
-/**
- * Complete a workout: update a set of rows with their achieved kg and
- * mark them Completado (or Fallado). Accepts:
- *   { dia, rutina, exercises: [{rowId, kgConseguidos, estado?, notas?}] }
- * If an exercise object lacks rowId but has `ejercicio`, we'll try to
- * match by (dia, rutina, ejercicio).
- */
-function completeWorkout(payload) {
-  if (!payload) throw new Error('payload required');
-  const exercises = payload.exercises || payload.ejercicios || [];
-  if (!Array.isArray(exercises) || exercises.length === 0) {
-    throw new Error('exercises array required');
+function updateWorkout_(body) {
+  if (!body || !body.match || !body.updates) {
+    throw new Error('Body must include `match` and `updates`');
   }
-
-  const sheet = getSheet();
-  ensureTextColumns(sheet);
-
-  // Build a lookup table if needed
-  let lookup = null;
-  const needsLookup = exercises.some(e => !e.rowId);
-  if (needsLookup) {
-    const rows = readAllRows();
-    lookup = rows;
+  if (!body.match.date || !body.match.routine) {
+    throw new Error('updateWorkout match requires `date` and `routine`');
   }
+  const matches = findMatchingRows_(body.match);
+  if (matches.length === 0) throw new Error('No rows matched');
+  const sheet = getSheet_();
+  matches.forEach(m => applyUpdatesToRow_(sheet, m.rowNumber, body.updates));
+  return { updated: matches.length, rowNumbers: matches.map(m => m.rowNumber) };
+}
 
-  const results = [];
-  exercises.forEach(ex => {
-    let rowId = Number(ex.rowId);
-    if (!rowId && lookup) {
-      const dia = toDateString(payload.dia || ex.dia);
-      const rutina = payload.rutina || ex.rutina;
-      const match = lookup.find(r =>
-        r['Día'] === dia &&
-        r['Rutina'] === rutina &&
-        r['Ejercicio'] === ex.ejercicio
-      );
-      if (match) rowId = match.rowId;
-    }
-    if (!rowId) {
-      results.push({ error: 'Could not resolve rowId for ' + JSON.stringify(ex) });
-      return;
-    }
-    const fields = {
-      'KG / Detalles (Conseguidos)': ex.kgConseguidos !== undefined ? ex.kgConseguidos : (ex['KG / Detalles (Conseguidos)'] || ''),
-      'Estado': ex.estado || ESTADOS.COMPLETADO
-    };
-    if (ex.notas !== undefined) fields['Objetivo / Notas'] = ex.notas;
-    if (ex.reps !== undefined) fields['Reps'] = ex.reps;
-    if (ex.series !== undefined) fields['Series'] = ex.series;
-    results.push(updateExercise(rowId, fields));
-  });
+function deleteExercise_(body) {
+  if (!body || !body.match) throw new Error('Body must include `match`');
+  const matches = findMatchingRows_(body.match);
+  if (matches.length === 0) throw new Error('No rows matched');
+  if (matches.length > 1) {
+    throw new Error('Match is ambiguous (' + matches.length + ' rows). Use `rowNumber`.');
+  }
+  const sheet = getSheet_();
+  sheet.deleteRow(matches[0].rowNumber);
+  return { deleted: 1, rowNumber: matches[0].rowNumber };
+}
 
-  return {
-    dia: toDateString(payload.dia),
-    rutina: payload.rutina,
-    completados: results.filter(r => !r.error).length,
-    errores: results.filter(r => r.error),
-    ejercicios: results.filter(r => !r.error).map(r => r.ejercicio)
-  };
+function deleteWorkout_(body) {
+  if (!body || !body.match || !body.match.date || !body.match.routine) {
+    throw new Error('deleteWorkout requires match.date and match.routine');
+  }
+  const matches = findMatchingRows_(body.match);
+  if (matches.length === 0) throw new Error('No rows matched');
+  const sheet = getSheet_();
+  // Borrar de abajo a arriba para no desplazar índices
+  const rowNumbers = matches.map(m => m.rowNumber).sort((a, b) => b - a);
+  rowNumbers.forEach(rn => sheet.deleteRow(rn));
+  return { deleted: rowNumbers.length, rowNumbers: rowNumbers.sort((a, b) => a - b) };
 }
 
 // ============================================================================
-// UTIL
+//  TESTS MANUALES (ejecutar desde el editor de Apps Script)
 // ============================================================================
 
-function mergeParams(params, body) {
-  // For POST: body wins; for GET: query params form the payload.
-  const merged = {};
-  Object.keys(params || {}).forEach(k => { merged[k] = params[k]; });
-  Object.keys(body || {}).forEach(k => { merged[k] = body[k]; });
-  // Parse ejercicios if it came as a string
-  if (typeof merged.ejercicios === 'string') {
-    try { merged.ejercicios = JSON.parse(merged.ejercicios); } catch (e) {}
-  }
-  return merged;
+function test_getExercises() {
+  Logger.log(JSON.stringify(getExercises_({ status: 'Planeado' }), null, 2));
 }
 
-function parseFieldsFromParams(params) {
-  // Convert ?field.Series=4&field.Reps=8 style into { Series: 4, Reps: 8 }
-  const out = {};
-  Object.keys(params || {}).forEach(k => {
-    if (k.indexOf('field.') === 0) out[k.substring(6)] = params[k];
-  });
-  return out;
+function test_getWorkouts() {
+  Logger.log(JSON.stringify(getWorkouts_({}), null, 2));
 }
 
-function respond(status, data) {
-  const out = ContentService.createTextOutput(JSON.stringify({ status, data }));
-  out.setMimeType(ContentService.MimeType.JSON);
-  return out;
-}
-
-// ============================================================================
-// ONE-OFF MIGRATION / SETUP HELPERS (run manually from the Apps Script editor)
-// ============================================================================
-
-/**
- * Ensure the sheet exists with the right headers and text-formatted columns.
- * Run this once after pasting the script.
- */
-function setupSheet() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
-  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-  sheet.setFrozenRows(1);
-  // Force text format on series/reps/kg columns so Sheets never converts
-  // "8-5" or "8,5" into Date objects.
-  sheet.getRange(2, COLS.SERIES + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.REPS + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.KG_OBJETIVO + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
-  sheet.getRange(2, COLS.KG_CONSEGUIDOS + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
-  // Día as date
-  sheet.getRange(2, COLS.DIA + 1, sheet.getMaxRows(), 1).setNumberFormat('yyyy-mm-dd');
-  return 'Setup complete';
-}
-
-/**
- * One-off fix for rows that already got corrupted by Sheets auto-parsing
- * things like "8-5" into Date objects in the Reps or KG columns.
- * This re-writes those cells as the formatted YYYY-MM-DD string, which is
- * obviously not the right value — you'll still need to edit them by hand,
- * but at least the column will be text-formatted afterwards so new entries
- * behave.
- */
-function fixCorruptedDateCells() {
-  const sheet = getSheet();
-  ensureTextColumns(sheet);
-  const range = sheet.getDataRange();
-  const values = range.getValues();
-  const out = [];
-  for (let i = 0; i < values.length; i++) {
-    const row = values[i].slice();
-    if (i > 0) {
-      [COLS.SERIES, COLS.REPS, COLS.KG_OBJETIVO, COLS.KG_CONSEGUIDOS].forEach(c => {
-        if (Object.prototype.toString.call(row[c]) === '[object Date]') {
-          row[c] = toDateString(row[c]);
-        }
-      });
-    }
-    out.push(row);
-  }
-  range.setValues(out);
-  return 'Done';
+function test_getStats() {
+  Logger.log(JSON.stringify(getStats_({}), null, 2));
 }
