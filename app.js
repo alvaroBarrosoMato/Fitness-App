@@ -123,6 +123,15 @@ function displayValue(v) {
     return s;
 }
 
+/** Today as YYYY-MM-DD (local time). */
+function todayIsoDate() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 /** Format a YYYY-MM-DD into a friendlier Spanish label. */
 function formatDiaLabel(dia) {
     if (!dia) return 'Sin fecha';
@@ -159,7 +168,8 @@ function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     if (!container) return;
 
-    const planeados = state.all.filter(e => e.Estado === 'Planeado');
+    const today = todayIsoDate();
+    const planeados = state.all.filter(e => e.Estado === 'Planeado' && (e['Día'] || '') >= today);
     const completados = state.all.filter(e => e.Estado === 'Completado');
 
     const planGroups = groupByWorkout(planeados)
@@ -220,12 +230,16 @@ function renderPlanificados() {
     const container = document.getElementById('planificados-list');
     if (!container) return;
 
-    const planeados = state.all.filter(e => e.Estado === 'Planeado');
+    // Only planned workouts dated today or in the future.
+    const today = todayIsoDate();
+    const planeados = state.all.filter(e =>
+        e.Estado === 'Planeado' && (e['Día'] || '') >= today
+    );
     const groups = groupByWorkout(planeados)
         .sort((a, b) => (a.dia || '').localeCompare(b.dia || ''));
 
     if (groups.length === 0) {
-        container.innerHTML = '<p style="color:#999;text-align:center">Sin entrenamientos planificados</p>';
+        container.innerHTML = '<p style="color:#999;text-align:center">No hay entrenamientos planificados a partir de hoy</p>';
         return;
     }
 
@@ -272,46 +286,39 @@ function renderPasados() {
     const container = document.getElementById('pasados-list');
     if (!container) return;
 
-    // Include both Completado and Fallado, exclude Planeado
-    const past = state.all.filter(e => e.Estado === 'Completado' || e.Estado === 'Fallado');
+    // Only completed workouts, grouped by date (most recent first).
+    const past = state.all.filter(e => e.Estado === 'Completado');
     const groups = groupByWorkout(past)
         .sort((a, b) => (b.dia || '').localeCompare(a.dia || ''));
 
     if (groups.length === 0) {
-        container.innerHTML = '<p style="color:#999;text-align:center">Sin entrenamientos registrados</p>';
+        container.innerHTML = '<p style="color:#999;text-align:center">Sin entrenamientos completados todavía</p>';
         return;
     }
 
     let html = '';
     groups.forEach(g => {
-        const anyFailed = g.ejercicios.some(ex => ex.Estado === 'Fallado');
-        const badgeClass = anyFailed ? 'badge--fallado' : 'badge--completado';
-        const badgeText = anyFailed ? 'Con fallos' : 'Completado';
         html += `<div class="card workout-group">
             <div class="workout-group__header">
                 <div>
                     <div class="workout-group__title">${escapeHtml(formatDiaLabel(g.dia))}</div>
                     <div class="workout-group__meta">${escapeHtml(g.rutina)} · ${g.ejercicios.length} ejercicio(s)</div>
                 </div>
-                <span class="badge ${badgeClass}">${badgeText}</span>
+                <span class="badge badge--completado">Completado</span>
             </div>
             <table>
                 <thead><tr>
                     <th>Ejercicio</th><th>Series</th><th>Reps</th>
-                    <th>Objetivo</th><th>Conseguido</th><th>Estado</th><th>Notas</th>
+                    <th>Objetivo</th><th>Conseguido</th><th>Notas</th>
                 </tr></thead>
                 <tbody>`;
         g.ejercicios.forEach(ex => {
-            const estado = ex.Estado || 'Planeado';
-            const cls = estado === 'Completado' ? 'badge--completado' :
-                        estado === 'Fallado' ? 'badge--fallado' : 'badge--planeado';
             html += `<tr>
                 <td>${escapeHtml(ex.Ejercicio)}</td>
                 <td>${escapeHtml(displayValue(ex.Series))}</td>
                 <td>${escapeHtml(displayValue(ex.Reps))}</td>
                 <td>${escapeHtml(displayValue(ex['KG / Detalles (Objetivo)']))}</td>
                 <td>${escapeHtml(displayValue(ex['KG / Detalles (Conseguidos)']))}</td>
-                <td><span class="badge ${cls}">${escapeHtml(estado)}</span></td>
                 <td>${escapeHtml(displayValue(ex['Objetivo / Notas']))}</td>
             </tr>`;
         });
@@ -329,10 +336,28 @@ function setupNewWorkoutForm() {
     const addBtn = document.getElementById('btn-add-exercise');
     const form = document.getElementById('new-workout-form');
     const feedback = document.getElementById('new-workout-feedback');
-    if (!list || !addBtn || !form) return;
+    if (!list || !addBtn || !form) {
+        console.warn('setupNewWorkoutForm: missing elements', { list, addBtn, form });
+        return;
+    }
 
     addExerciseRow(list);
-    addBtn.addEventListener('click', () => addExerciseRow(list));
+
+    addBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('➕ Añadir ejercicio');
+        addExerciseRow(list);
+    });
+
+    // Delegated remove handler
+    list.addEventListener('click', (e) => {
+        const btn = e.target.closest('.exercise-row__remove');
+        if (!btn) return;
+        e.preventDefault();
+        const row = btn.closest('.exercise-row');
+        if (row) row.remove();
+    });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -383,14 +408,13 @@ function addExerciseRow(list) {
     const div = document.createElement('div');
     div.className = 'exercise-row';
     div.innerHTML = `
-        <input type="text" placeholder="Ejercicio" required>
+        <input type="text" placeholder="Ejercicio">
         <input type="text" placeholder="Series" value="4">
         <input type="text" placeholder="Reps" value="8">
         <input type="text" placeholder="Kg objetivo">
         <input type="text" placeholder="Notas">
         <button type="button" class="exercise-row__remove" title="Eliminar">×</button>
     `;
-    div.querySelector('.exercise-row__remove').addEventListener('click', () => div.remove());
     list.appendChild(div);
 }
 
@@ -445,6 +469,7 @@ function openWorkoutModal(dia, rutina) {
                     <option value="Planeado">Planeado</option>
                 </select>
             </div>
+            <input type="text" data-field="notas" class="modal-exercise__notes" placeholder="Notas (opcional)" value="${escapeHtml(ex['Objetivo / Notas'] || '')}">
         `;
         list.appendChild(row);
     });
@@ -470,6 +495,7 @@ async function completeCurrentWorkout() {
         series: r.querySelector('[data-field="series"]').value.trim(),
         reps: r.querySelector('[data-field="reps"]').value.trim(),
         kgConseguidos: r.querySelector('[data-field="kg"]').value.trim(),
+        notas: r.querySelector('[data-field="notas"]').value.trim(),
         estado: r.querySelector('[data-field="estado"]').value
     }));
 
