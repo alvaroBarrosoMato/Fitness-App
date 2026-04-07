@@ -975,6 +975,340 @@ function openDebugPanel() {
   renderDebugPanel();
   panel.classList.add('open');
 }
+// =============================================================
+// COACH VIRTUAL — Añadir al final de app.js (antes del bootstrap)
+// =============================================================
+
+// ----- STATE -----
+state.coach = {
+  loaded: false,
+  messages: [],   // { author, message, timestamp, metadata, rowNumber }
+  sending: false,
+};
+
+// ----- DOM HELPERS -----
+function coachDom() {
+  return {
+    list: document.getElementById('coach-messages'),
+    form: document.getElementById('coach-composer'),
+    input: document.getElementById('coach-input'),
+    send: document.getElementById('coach-send'),
+    clear: document.getElementById('coach-clear'),
+  };
+}
+
+// ----- LOAD HISTORY -----
+async function loadCoachHistory() {
+  if (state.coach.loaded) return;
+  log('coach', 'loadCoachHistory()');
+  const { list } = coachDom();
+  list.innerHTML = `<div class="loading">Cargando conversación</div>`;
+  try {
+    const history = await apiCall('getChatHistory', { limit: 100 });
+    state.coach.messages = history || [];
+    state.coach.loaded = true;
+    renderCoachMessages();
+  } catch (err) {
+    logErr('loadCoachHistory', err);
+    list.innerHTML = `<div class="error-box">Error cargando chat: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// ----- RENDER -----
+function renderCoachMessages() {
+  const { list } = coachDom();
+  const msgs = state.coach.messages;
+
+  if (!msgs.length) {
+    list.innerHTML = `
+      <div class="coach-empty">
+        <div class="big">01</div>
+        <p>Pregunta al coach. Puede consultar tus datos y proponer cambios en la rutina.</p>
+      </div>
+    `;
+    return;
+  }
+
+  list.innerHTML = msgs.map((m, idx) => renderMessage(m, idx)).join('');
+  // Scroll al final
+  requestAnimationFrame(() => {
+    list.scrollTop = list.scrollHeight;
+  });
+}
+
+function renderMessage(m, idx) {
+  const isUser = m.author === 'User';
+  const label = isUser ? 'Tú' : 'Coach';
+  const cls = isUser ? 'user' : 'trainer';
+  const text = escapeHtml(m.message || '');
+
+  let proposalsHtml = '';
+  if (!isUser && m.metadata && Array.isArray(m.metadata.proposedActions) && m.metadata.proposedActions.length > 0) {
+    proposalsHtml = renderProposals(m.metadata, idx, m.rowNumber);
+  }
+
+  return `
+    <div class="msg ${cls}" data-idx="${idx}">
+      <span class="msg-label">${label}</span>
+      <div class="msg-text">${text}</div>
+      ${proposalsHtml}
+    </div>
+  `;
+}
+
+function renderProposals(metadata, msgIdx, chatRowNumber) {
+  const applied = !!metadata.applied;
+  const discarded = !!metadata.discarded;
+  const stateClass = applied ? 'applied' : (discarded ? 'discarded' : '');
+
+  const items = metadata.proposedActions.map(p => {
+    const summary = summarizeProposal(p);
+    return `
+      <div class="proposal">
+        <span class="proposal-type">${summary.type}</span>
+        <div class="proposal-summary">${summary.title}</div>
+        ${summary.details ? `<ul>${summary.details.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : ''}
+        ${p.args.reason ? `<div class="proposal-reason">"${escapeHtml(p.args.reason)}"</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const actionsHtml = (applied || discarded) ? '' : `
+    <div class="proposal-actions">
+      <button class="apply" data-coach-apply="${msgIdx}" data-chat-row="${chatRowNumber || ''}">✓ Aplicar cambios</button>
+      <button class="discard" data-coach-discard="${msgIdx}">✗ Descartar</button>
+    </div>
+  `;
+
+  return `
+    <div class="msg-proposals ${stateClass}">
+      <div class="msg-proposals-title">Propuestas de cambio (${metadata.proposedActions.length})</div>
+      ${items}
+      ${actionsHtml}
+    </div>
+  `;
+}
+
+function summarizeProposal(p) {
+  const a = p.args || {};
+  switch (p.tool) {
+    case 'propose_create_workout': {
+      const details = (a.exercises || []).map(ex =>
+        `${ex.exercise} · ${ex.sets}×${ex.reps} · ${ex.targetDetails || '—'}`
+      );
+      return {
+        type: 'Crear entrenamiento',
+        title: `${a.routine || '—'} · ${a.date || '—'}`,
+        details,
+      };
+    }
+    case 'propose_update_exercise': {
+      const updates = a.updates || {};
+      const details = Object.keys(updates).map(k => `${k}: ${updates[k]}`);
+      return {
+        type: 'Modificar ejercicio',
+        title: `Fila ${a.rowNumber}`,
+        details,
+      };
+    }
+    case 'propose_update_workout': {
+      const updates = a.updates || {};
+      const details = Object.keys(updates).map(k => `${k}: ${updates[k]}`);
+      return {
+        type: 'Modificar entrenamiento',
+        title: `${a.routine || '—'} · ${a.date || '—'}`,
+        details,
+      };
+    }
+    case 'propose_delete_workout':
+      return {
+        type: 'Borrar entrenamiento',
+        title: `${a.routine || '—'} · ${a.date || '—'}`,
+        details: null,
+      };
+    default:
+      return { type: p.tool, title: JSON.stringify(a), details: null };
+  }
+}
+
+// ----- SEND MESSAGE -----
+async function sendCoachMessage(text) {
+  if (!text || !text.trim() || state.coach.sending) return;
+  const msg = text.trim();
+  log('coach', 'sendCoachMessage:', msg);
+
+  state.coach.sending = true;
+  const { input, send, list } = coachDom();
+  input.value = '';
+  input.style.height = 'auto';
+  send.disabled = true;
+
+  // Añadir mensaje optimista del usuario
+  state.coach.messages.push({
+    author: 'User',
+    message: msg,
+    timestamp: new Date().toISOString(),
+    metadata: null,
+  });
+  renderCoachMessages();
+
+  // Indicador "escribiendo…"
+  const typingEl = document.createElement('div');
+  typingEl.className = 'typing';
+  typingEl.innerHTML = '<span></span><span></span><span></span>';
+  list.appendChild(typingEl);
+  list.scrollTop = list.scrollHeight;
+
+  try {
+    const res = await apiCall('sendChatMessage', {}, { message: msg });
+    log('coach', 'respuesta coach:', res);
+
+    // Recargar historial para tener rowNumbers correctos
+    await loadCoachHistoryForce();
+  } catch (err) {
+    logErr('sendCoachMessage', err);
+    state.coach.messages.push({
+      author: 'Trainer',
+      message: 'Error: ' + err.message,
+      timestamp: new Date().toISOString(),
+      metadata: null,
+    });
+    renderCoachMessages();
+    toast('Error enviando mensaje', true);
+  } finally {
+    state.coach.sending = false;
+    send.disabled = false;
+    input.focus();
+  }
+}
+
+async function loadCoachHistoryForce() {
+  state.coach.loaded = false;
+  await loadCoachHistory();
+}
+
+// ----- APPLY / DISCARD PROPOSALS -----
+async function applyProposalAt(msgIdx) {
+  const m = state.coach.messages[msgIdx];
+  if (!m || !m.metadata || !Array.isArray(m.metadata.proposedActions)) return;
+  log('coach', 'applyProposalAt:', msgIdx, m.metadata.proposedActions);
+
+  if (!confirm(`¿Aplicar ${m.metadata.proposedActions.length} cambio(s) a la rutina?`)) return;
+
+  try {
+    const res = await apiCall('confirmActions', {}, {
+      actions: m.metadata.proposedActions,
+      chatRowNumber: m.rowNumber,
+    });
+    log('coach', 'confirmActions result:', res);
+
+    // Comprobar errores
+    const errors = (res.results || []).filter(r => !r.ok);
+    if (errors.length > 0) {
+      toast(`${errors.length} error(es) al aplicar`, true);
+      errors.forEach(e => log('err', 'Propuesta fallida:', e));
+    } else {
+      toast(`✓ ${res.executed} cambio(s) aplicado(s)`);
+    }
+
+    // Marcar local como applied
+    m.metadata.applied = true;
+    renderCoachMessages();
+
+    // Recargar planeados / pasados para reflejar los cambios
+    await loadAll();
+  } catch (err) {
+    logErr('applyProposalAt', err);
+    toast('Error: ' + err.message, true);
+  }
+}
+
+function discardProposalAt(msgIdx) {
+  const m = state.coach.messages[msgIdx];
+  if (!m || !m.metadata) return;
+  log('coach', 'discardProposalAt:', msgIdx);
+  m.metadata.discarded = true;
+  renderCoachMessages();
+}
+
+// ----- CLEAR CHAT -----
+async function clearCoachChat() {
+  if (!confirm('¿Borrar todo el historial de conversación? Esta acción no se puede deshacer.')) return;
+  try {
+    await apiCall('clearChat', {}, {});
+    state.coach.messages = [];
+    state.coach.loaded = true;
+    renderCoachMessages();
+    toast('Conversación borrada');
+  } catch (err) {
+    logErr('clearCoachChat', err);
+    toast('Error: ' + err.message, true);
+  }
+}
+
+// ----- HANDLERS INSTALL -----
+function installCoachHandlers() {
+  log('info', 'installCoachHandlers');
+  const { form, input, clear } = coachDom();
+  if (!form) { log('warn', 'coach form not found'); return; }
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    sendCoachMessage(input.value);
+  });
+
+  // Enter para enviar, Shift+Enter para salto de línea
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendCoachMessage(input.value);
+    }
+  });
+
+  // Autogrow
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+  });
+
+  if (clear) clear.addEventListener('click', clearCoachChat);
+
+  // Delegación para apply/discard (los botones se re-renderizan constantemente)
+  document.addEventListener('click', e => {
+    const applyBtn = e.target.closest('[data-coach-apply]');
+    if (applyBtn) {
+      const idx = parseInt(applyBtn.dataset.coachApply, 10);
+      applyProposalAt(idx);
+      return;
+    }
+    const discardBtn = e.target.closest('[data-coach-discard]');
+    if (discardBtn) {
+      const idx = parseInt(discardBtn.dataset.coachDiscard, 10);
+      discardProposalAt(idx);
+      return;
+    }
+  });
+}
+
+// ----- TAB LAZY LOAD -----
+// Enganchar en el handler existente de tabs. Como installGlobalHandlers ya
+// tiene un listener delegado en nav.tabs, añadimos un segundo listener que
+// dispara cuando el usuario entra a la pestaña Coach.
+function installCoachTabLazyLoad() {
+  const tabsRoot = document.querySelector('nav.tabs');
+  if (!tabsRoot) return;
+  tabsRoot.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-view="coach"]');
+    if (!btn) return;
+    log('coach', 'coach tab clicked → lazy load');
+    loadCoachHistory();
+  });
+}
+
+// ----- INIT (llamar desde bootstrap) -----
+// En la función bootstrap() existente, añadir tras installGlobalHandlers():
+//   installCoachHandlers();
+//   installCoachTabLazyLoad();
 
 // =====================================================================
 // INIT
@@ -983,6 +1317,8 @@ function bootstrap() {
   try {
     log('info', 'bootstrap() · installGlobalHandlers + loadAll');
     installGlobalHandlers();
+    installCoachHandlers();
+    installCoachTabLazyLoad();
     loadAll();
   } catch (err) {
     logErr('bootstrap', err);
