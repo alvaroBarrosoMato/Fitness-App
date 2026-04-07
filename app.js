@@ -1,8 +1,10 @@
+
 // =====================================================================
 // CONFIG
 // =====================================================================
-const API_URL = 'https://script.google.com/macros/s/AKfycbx7VRBQLHKw--TExrzR58ydchpY516XjZEtD43WQ7LnJn7zo6PaO-1ju6WJhVQzkYcFrw/exec';
-const VERSION = '1.1.0';
+const API_URL = ‘https://script.google.com/macros/s/AKfycbx7VRBQLHKw–TExrzR58ydchpY516XjZEtD43WQ7LnJn7zo6PaO-1ju6WJhVQzkYcFrw/exec’;
+const VERSION = ‘1.1.0’;
+
 // =====================================================================
 // LOGGER
 // =====================================================================
@@ -18,17 +20,48 @@ action: ‘color:#4af0ff;font-weight:bold’,
 runner: ‘color:#4af0ff;font-weight:bold;font-style:italic’,
 muted:  ‘color:#666’,
 };
-function log(tag, …args)   { console.log(’%c[’ + tag.toUpperCase() + ‘]’, LOG_STYLES[tag] || LOG_STYLES.info, …args); }
-function logGroup(tag, label) { console.groupCollapsed(’%c[’ + tag.toUpperCase() + ‘]’, LOG_STYLES[tag] || LOG_STYLES.info, label); }
+
+// In-memory log ring buffer so we can dump it into an on-screen debug panel
+// (useful on mobile where the console is not accessible).
+const LOG_BUFFER = [];
+const LOG_MAX = 300;
+function pushLog(tag, args) {
+const ts = new Date().toISOString().slice(11, 23);
+let text;
+try {
+text = args.map(a => {
+if (a instanceof Error) return a.stack || a.message;
+if (typeof a === ‘object’) return JSON.stringify(a);
+return String(a);
+}).join(’ ’);
+} catch { text = ‘[unserializable]’; }
+LOG_BUFFER.push({ ts, tag, text });
+if (LOG_BUFFER.length > LOG_MAX) LOG_BUFFER.shift();
+// Live update panel if open
+if (typeof renderDebugPanel === ‘function’) renderDebugPanel();
+}
+
+function log(tag, …args)   {
+console.log(’%c[’ + tag.toUpperCase() + ‘]’, LOG_STYLES[tag] || LOG_STYLES.info, …args);
+pushLog(tag, args);
+}
+function logGroup(tag, label) {
+console.groupCollapsed(’%c[’ + tag.toUpperCase() + ‘]’, LOG_STYLES[tag] || LOG_STYLES.info, label);
+pushLog(tag, [‘▼ ’ + label]);
+}
 function logGroupEnd() { console.groupEnd(); }
 function logErr(label, err) {
 console.group(’%c[ERROR]’, LOG_STYLES.err, label);
 console.error(err);
 if (err && err.stack) console.log(’%cStack:’, LOG_STYLES.muted, ‘\n’ + err.stack);
 console.groupEnd();
+pushLog(‘err’, [label + ‘:’, (err && err.message) || err, (err && err.stack) ? ‘\n’ + err.stack : ‘’]);
 }
 
-window.addEventListener(‘error’, e => logErr(‘window.onerror’, e.error || e.message));
+window.addEventListener(‘error’, e => {
+logErr(‘window.onerror’, e.error || e.message);
+pushLog(‘err’, [‘window.onerror’, e.message, ‘at’, e.filename + ‘:’ + e.lineno + ‘:’ + e.colno]);
+});
 window.addEventListener(‘unhandledrejection’, e => logErr(‘unhandledrejection’, e.reason));
 
 console.log(’%c IRON LOG ’, LOG_STYLES.boot, `v${VERSION} · boot @ ${new Date().toISOString()}`);
@@ -76,7 +109,14 @@ const opts = body
 : { method: ‘GET’, redirect: ‘follow’ };
 
 try {
-const res = await fetch(url.toString(), opts);
+let res;
+try {
+res = await fetch(url.toString(), opts);
+} catch (netErr) {
+log(‘err’, ‘Network/fetch failed:’, netErr.message);
+logGroupEnd();
+throw new Error(’Red/CORS: ’ + netErr.message);
+}
 const ms = (performance.now() - t0).toFixed(0);
 log(‘api’, `Response: HTTP ${res.status} ${res.statusText} (${ms}ms)`);
 log(‘api’, ‘Final URL (after redirects):’, res.url);
@@ -337,6 +377,13 @@ if (e.key === ‘Escape’) closeRunner();
 if (e.key === ‘ArrowRight’) goToSlide(state.runner.currentIndex + 1);
 if (e.key === ‘ArrowLeft’) goToSlide(state.runner.currentIndex - 1);
 });
+
+// –––– STATUSBAR (click para ver log) ––––
+const statusbar = document.querySelector(’.statusbar’);
+if (statusbar) {
+statusbar.style.cursor = ‘pointer’;
+statusbar.addEventListener(‘click’, () => openDebugPanel());
+}
 
 // –––– CARD CLICKS (delegated at document) ––––
 document.addEventListener(‘click’, async (e) => {
@@ -790,13 +837,78 @@ logGroupEnd();
 } catch (err) {
 logGroupEnd();
 logErr(‘loadAll’, err);
-document.getElementById(‘api-dot’).classList.add(‘err’);
-document.getElementById(‘api-status’).textContent = ‘Error’;
-document.getElementById(‘list-planned’).innerHTML =
-`<div class="error-box">ERROR: ${escapeHtml(err.message)}<br><br>Abre la consola del navegador para ver el stack trace completo.</div>`;
-document.getElementById(‘today-slot’).innerHTML = ‘’;
-document.getElementById(‘list-past’).innerHTML = ‘’;
+const dot = document.getElementById(‘api-dot’);
+const st = document.getElementById(‘api-status’);
+const sync = document.getElementById(‘last-sync’);
+dot.classList.add(‘err’);
+dot.classList.remove(‘ok’);
+st.textContent = ‘ERROR’;
+if (sync) sync.textContent = (err && err.message ? err.message : String(err)).slice(0, 80);
+
+```
+document.getElementById('list-planned').innerHTML =
+  `<div class="error-box">
+    <b>ERROR DE CONEXIÓN</b><br><br>
+    <b>Mensaje:</b> ${escapeHtml(err.message || String(err))}<br>
+    <b>Tipo:</b> ${escapeHtml(err.name || 'Error')}<br><br>
+    <button id="show-debug" style="background:#ff5544;color:#000;border:none;padding:10px 16px;font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;cursor:pointer;border-radius:2px;">VER LOG COMPLETO</button>
+  </div>`;
+document.getElementById('today-slot').innerHTML = '';
+document.getElementById('list-past').innerHTML = '';
+const btn = document.getElementById('show-debug');
+if (btn) btn.addEventListener('click', openDebugPanel);
+
+// Auto-open debug panel on error for mobile visibility
+openDebugPanel();
+```
+
 }
+}
+
+// =====================================================================
+// ON-SCREEN DEBUG PANEL (mobile friendly — no console needed)
+// =====================================================================
+function ensureDebugPanel() {
+let panel = document.getElementById(‘debug-panel’);
+if (panel) return panel;
+panel = document.createElement(‘div’);
+panel.id = ‘debug-panel’;
+panel.innerHTML = `<div class="dbg-head"> <span>DEBUG LOG · IRON LOG v${VERSION}</span> <div class="dbg-btns"> <button id="dbg-copy">COPIAR</button> <button id="dbg-retry">REINTENTAR</button> <button id="dbg-close">OCULTAR</button> </div> </div> <pre id="dbg-body"></pre>`;
+document.body.appendChild(panel);
+panel.querySelector(’#dbg-close’).addEventListener(‘click’, () => panel.classList.remove(‘open’));
+panel.querySelector(’#dbg-retry’).addEventListener(‘click’, () => loadAll());
+panel.querySelector(’#dbg-copy’).addEventListener(‘click’, async () => {
+const txt = LOG_BUFFER.map(l => `[${l.ts}] [${l.tag.toUpperCase()}] ${l.text}`).join(’\n’);
+try {
+await navigator.clipboard.writeText(txt);
+toast(‘Log copiado’);
+} catch {
+// Fallback: select the pre contents
+const body = panel.querySelector(’#dbg-body’);
+const range = document.createRange();
+range.selectNodeContents(body);
+const sel = window.getSelection();
+sel.removeAllRanges();
+sel.addRange(range);
+toast(‘Selecciona y copia manualmente’, true);
+}
+});
+return panel;
+}
+
+function renderDebugPanel() {
+const panel = document.getElementById(‘debug-panel’);
+if (!panel) return;
+const body = panel.querySelector(’#dbg-body’);
+if (!body) return;
+body.textContent = LOG_BUFFER.map(l => `[${l.ts}] [${l.tag.toUpperCase()}] ${l.text}`).join(’\n’);
+body.scrollTop = body.scrollHeight;
+}
+
+function openDebugPanel() {
+const panel = ensureDebugPanel();
+renderDebugPanel();
+panel.classList.add(‘open’);
 }
 
 // =====================================================================
