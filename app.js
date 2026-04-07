@@ -2,8 +2,8 @@
 // =====================================================================
 // CONFIG
 // =====================================================================
-const API_URL = ‘https://script.google.com/macros/s/AKfycbx7VRBQLHKw–TExrzR58ydchpY516XjZEtD43WQ7LnJn7zo6PaO-1ju6WJhVQzkYcFrw/exec’;
-const VERSION = ‘1.1.0’;
+const API_URL = 'https://script.google.com/macros/s/AKfycbx7VRBQLHKw–TExrzR58ydchpY516XjZEtD43WQ7LnJn7zo6PaO-1ju6WJhVQzkYcFrw/exec';
+const VERSION = '1.1.0';
 
 // =====================================================================
 // LOGGER
