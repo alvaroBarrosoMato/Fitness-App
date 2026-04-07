@@ -659,7 +659,6 @@
     <span id="api-status">Sin conectar</span>
     <span class="sep">·</span>
     <span id="last-sync">—</span>
-    <button class="cfg" id="btn-config">Config API</button>
   </div>
 
   <!-- ============ PLANNED VIEW ============ -->
@@ -681,29 +680,53 @@
   </section>
 </div>
 
-<!-- CONFIG MODAL -->
-<div class="modal-backdrop" id="modal-config">
-  <div class="modal">
-    <h3>Configurar API</h3>
-    <p>Introduce la URL pública de tu Google Apps Script (el endpoint /exec del despliegue como Web App).</p>
-    <label for="api-url-input">API URL</label>
-    <input type="url" id="api-url-input" placeholder="https://script.google.com/macros/s/…/exec" />
-    <div class="actions">
-      <button class="btn ghost" id="btn-cancel-config">Cancelar</button>
-      <button class="btn primary" id="btn-save-config">Guardar</button>
-    </div>
-  </div>
-</div>
-
+<!-- TOAST -->
 <div class="toast" id="toast"></div>
 
 <script>
 // =====================================================================
+// CONFIG
+// =====================================================================
+const API_URL = 'https://script.google.com/macros/s/AKfycbyTcNRnAbU85clI_0B-nxuRiZ2ZcnPxrd1euz4693fph6_KCj7Cgk60dHGIIXm8b0WSkw/exec';
+const VERSION = '1.0.0';
+
+// =====================================================================
+// LOGGER
+// =====================================================================
+const LOG_STYLES = {
+  boot:   'background:#d4ff3a;color:#000;font-weight:bold;padding:2px 8px;border-radius:2px',
+  info:   'color:#4af0ff;font-weight:bold',
+  ok:     'color:#d4ff3a;font-weight:bold',
+  warn:   'color:#ffaa00;font-weight:bold',
+  err:    'background:#ff5544;color:#000;font-weight:bold;padding:2px 8px;border-radius:2px',
+  api:    'color:#8a9f1f;font-weight:bold',
+  render: 'color:#888;font-style:italic',
+  action: 'color:#4af0ff;font-weight:bold',
+  muted:  'color:#666',
+};
+function log(tag, ...args)   { console.log('%c[' + tag.toUpperCase() + ']', LOG_STYLES[tag] || LOG_STYLES.info, ...args); }
+function logGroup(tag, label) { console.groupCollapsed('%c[' + tag.toUpperCase() + ']', LOG_STYLES[tag] || LOG_STYLES.info, label); }
+function logGroupEnd() { console.groupEnd(); }
+function logErr(label, err) {
+  console.group('%c[ERROR]', LOG_STYLES.err, label);
+  console.error(err);
+  if (err && err.stack) console.log('%cStack:', LOG_STYLES.muted, '\n' + err.stack);
+  console.groupEnd();
+}
+
+// Global error traps
+window.addEventListener('error', e => logErr('window.onerror', e.error || e.message));
+window.addEventListener('unhandledrejection', e => logErr('unhandledrejection', e.reason));
+
+console.log('%c IRON LOG ', LOG_STYLES.boot, `v${VERSION} · boot @ ${new Date().toISOString()}`);
+log('info', 'API URL:', API_URL);
+log('info', 'UserAgent:', navigator.userAgent);
+log('info', 'Viewport:', window.innerWidth + 'x' + window.innerHeight);
+
+// =====================================================================
 // STATE
 // =====================================================================
-const STORAGE_KEY = 'ironlog.apiUrl.v1';
 const state = {
-  apiUrl: null,
   planned: [],
   past: [],
   inProgressEdits: {}, // key: rowNumber, value: achievedDetails string
@@ -712,21 +735,68 @@ const state = {
 // =====================================================================
 // API
 // =====================================================================
+let callCounter = 0;
 async function apiCall(action, params = {}, body = null) {
-  if (!state.apiUrl) throw new Error('API no configurada');
-  const url = new URL(state.apiUrl);
+  const callId = ++callCounter;
+  const t0 = performance.now();
+  const url = new URL(API_URL);
   url.searchParams.set('action', action);
   Object.entries(params).forEach(([k, v]) => {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
   });
+
+  logGroup('api', `#${callId} → ${action}`);
+  log('api', 'URL:', url.toString());
+  log('api', 'Method:', body ? 'POST' : 'GET');
+  if (Object.keys(params).length) log('api', 'Query params:', params);
+  if (body) log('api', 'Body:', body);
+
   const opts = body
-    ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } }
-    : { method: 'GET' };
-  const res = await fetch(url.toString(), opts);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'API error');
-  return data.data;
+    ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' }
+    : { method: 'GET', redirect: 'follow' };
+
+  try {
+    const res = await fetch(url.toString(), opts);
+    const ms = (performance.now() - t0).toFixed(0);
+    log('api', `Response: HTTP ${res.status} ${res.statusText} (${ms}ms)`);
+    log('api', 'Final URL (after redirects):', res.url);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '(no body)');
+      log('err', 'HTTP error body:', text);
+      logGroupEnd();
+      throw new Error('HTTP ' + res.status + ': ' + res.statusText);
+    }
+
+    const raw = await res.text();
+    log('api', 'Raw response length:', raw.length, 'chars');
+    if (raw.length < 2000) log('api', 'Raw response:', raw);
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseErr) {
+      log('err', 'JSON parse failed. Raw:', raw.substring(0, 500));
+      logGroupEnd();
+      throw new Error('Respuesta no es JSON válido: ' + parseErr.message);
+    }
+
+    if (!data.ok) {
+      log('err', 'API returned ok=false:', data.error);
+      if (data.stack) log('err', 'Server stack:', data.stack);
+      logGroupEnd();
+      throw new Error(data.error || 'API error');
+    }
+
+    log('ok', '✓ Success. Data:', data.data);
+    logGroupEnd();
+    return data.data;
+  } catch (err) {
+    const ms = (performance.now() - t0).toFixed(0);
+    log('err', `✗ Call #${callId} failed after ${ms}ms:`, err.message);
+    logGroupEnd();
+    throw err;
+  }
 }
 
 // =====================================================================
@@ -776,6 +846,7 @@ function toast(msg, isErr = false) {
 // RENDER
 // =====================================================================
 function renderPlanned() {
+  log('render', `renderPlanned() · ${state.planned.length} workouts`);
   const list = document.getElementById('list-planned');
   document.getElementById('count-planned').textContent = state.planned.length;
 
@@ -808,6 +879,7 @@ function renderPlanned() {
 }
 
 function renderPast() {
+  log('render', `renderPast() · ${state.past.length} workouts`);
   const list = document.getElementById('list-past');
   document.getElementById('count-past').textContent = state.past.length;
 
@@ -938,8 +1010,12 @@ function attachWorkoutHandlers() {
       const key = b.dataset.key;
       const [date, ...routineParts] = key.split('__');
       const routine = routineParts.join('__');
+      log('action', `Click: ${action} → ${date} / ${routine}`);
       const workout = state.planned.find(w => w.date === date && w.routine === routine);
-      if (!workout) return;
+      if (!workout) {
+        log('warn', 'Workout no encontrado para key:', key);
+        return;
+      }
       b.disabled = true;
       try {
         if (action === 'start')    await startWorkout(workout);
@@ -947,6 +1023,7 @@ function attachWorkoutHandlers() {
         if (action === 'fail')     await markWorkoutStatus(workout, 'Fallido');
         if (action === 'skip')     await markWorkoutStatus(workout, 'Saltado');
       } catch (err) {
+        logErr(`action:${action}`, err);
         toast(err.message, true);
       } finally {
         b.disabled = false;
@@ -959,6 +1036,7 @@ function attachWorkoutHandlers() {
 // ACTIONS
 // =====================================================================
 async function startWorkout(w) {
+  log('action', `startWorkout: ${w.date} / ${w.routine} · ${w.exercises.length} ejercicios`);
   // Locally flip to "En Progreso" — no API call (no existe ese estado en backend, lo usamos sólo en UI)
   w.status = 'En Progreso';
   w.exercises.forEach(ex => ex.status = 'En Progreso');
@@ -970,26 +1048,31 @@ async function startWorkout(w) {
 }
 
 async function completeWorkout(w) {
-  // Para cada ejercicio con achievedDetails introducido, llamar updateExercise
+  log('action', `completeWorkout: ${w.date} / ${w.routine}`);
+  log('action', 'Edits pendientes:', state.inProgressEdits);
   toast('Guardando…');
   let updated = 0;
   for (const ex of w.exercises) {
     const achieved = state.inProgressEdits[ex.rowNumber] ?? ex.achievedDetails ?? '';
+    const finalAchieved = achieved || ex.targetDetails;
+    log('action', `  → row ${ex.rowNumber} (${ex.exercise}): achieved="${finalAchieved}"`);
     await apiCall('updateExercise', {}, {
       match: { rowNumber: ex.rowNumber },
       updates: {
-        achievedDetails: achieved || ex.targetDetails, // si no se tocó, asumimos que cumplió el objetivo
+        achievedDetails: finalAchieved,
         status: 'Completado',
       },
     });
     delete state.inProgressEdits[ex.rowNumber];
     updated++;
   }
+  log('ok', `✓ ${updated} ejercicios guardados`);
   toast(`✓ ${updated} ejercicios guardados`);
   await loadAll();
 }
 
 async function markWorkoutStatus(w, status) {
+  log('action', `markWorkoutStatus: ${w.date} / ${w.routine} → ${status}`);
   await apiCall('updateWorkout', {}, {
     match: { date: w.date, routine: w.routine },
     updates: { status },
@@ -1002,15 +1085,8 @@ async function markWorkoutStatus(w, status) {
 // LOAD
 // =====================================================================
 async function loadAll() {
-  if (!state.apiUrl) {
-    document.getElementById('api-status').textContent = 'Sin configurar';
-    document.getElementById('api-dot').classList.remove('ok');
-    document.getElementById('list-planned').innerHTML =
-      `<div class="empty"><div class="big">API</div><p>Configura la URL del endpoint de Apps Script para empezar.</p></div>`;
-    document.getElementById('list-past').innerHTML =
-      `<div class="empty"><div class="big">API</div><p>Configura la URL del endpoint de Apps Script para empezar.</p></div>`;
-    return;
-  }
+  logGroup('info', 'loadAll()');
+  const t0 = performance.now();
 
   document.getElementById('list-planned').innerHTML = `<div class="loading">Cargando planeados</div>`;
   document.getElementById('list-past').innerHTML = `<div class="loading">Cargando historial</div>`;
@@ -1019,15 +1095,19 @@ async function loadAll() {
     const dot = document.getElementById('api-dot');
     const st = document.getElementById('api-status');
 
+    log('info', 'Lanzando fetch en paralelo: planeados + completados');
     const [planned, past] = await Promise.all([
       apiCall('getWorkouts', { status: 'Planeado', sort: 'date_asc' }),
       apiCall('getWorkouts', { status: 'Completado', sort: 'date_desc' }),
     ]);
 
+    log('ok', `Recibidos · planeados: ${planned.length} · pasados: ${past.length}`);
+
     // Preserve in-progress local state from previous render
     const previousInProgress = state.planned.filter(w => w.status === 'En Progreso');
+    if (previousInProgress.length) log('info', `Preservando ${previousInProgress.length} workouts "En Progreso" locales`);
+
     state.planned = planned;
-    // Re-apply "En Progreso" overlay for any workouts the user had started locally
     previousInProgress.forEach(prev => {
       const match = state.planned.find(w => w.date === prev.date && w.routine === prev.routine);
       if (match) {
@@ -1044,11 +1124,17 @@ async function loadAll() {
 
     renderPlanned();
     renderPast();
+
+    const ms = (performance.now() - t0).toFixed(0);
+    log('ok', `loadAll completado en ${ms}ms`);
+    logGroupEnd();
   } catch (err) {
+    logGroupEnd();
+    logErr('loadAll', err);
     document.getElementById('api-dot').classList.add('err');
     document.getElementById('api-status').textContent = 'Error';
     document.getElementById('list-planned').innerHTML =
-      `<div class="error-box">ERROR: ${escapeHtml(err.message)}</div>`;
+      `<div class="error-box">ERROR: ${escapeHtml(err.message)}<br><br>Abre la consola del navegador para ver el stack trace completo.</div>`;
     document.getElementById('list-past').innerHTML = '';
   }
 }
@@ -1058,6 +1144,7 @@ async function loadAll() {
 // =====================================================================
 document.querySelectorAll('nav.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
+    log('info', 'Tab switch →', btn.dataset.view);
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     btn.classList.add('active');
@@ -1066,35 +1153,10 @@ document.querySelectorAll('nav.tabs button').forEach(btn => {
 });
 
 // =====================================================================
-// CONFIG MODAL
-// =====================================================================
-const modal = document.getElementById('modal-config');
-const apiInput = document.getElementById('api-url-input');
-
-document.getElementById('btn-config').addEventListener('click', () => {
-  apiInput.value = state.apiUrl || '';
-  modal.classList.add('open');
-});
-document.getElementById('btn-cancel-config').addEventListener('click', () => modal.classList.remove('open'));
-document.getElementById('btn-save-config').addEventListener('click', () => {
-  const url = apiInput.value.trim();
-  if (!url) { toast('URL vacía', true); return; }
-  state.apiUrl = url;
-  try { localStorage.setItem(STORAGE_KEY, url); } catch {}
-  modal.classList.remove('open');
-  toast('API guardada');
-  loadAll();
-});
-modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
-
-// =====================================================================
 // INIT
 // =====================================================================
 (function init() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) state.apiUrl = saved;
-  } catch {}
+  log('info', 'init() · llamando loadAll()');
   loadAll();
 })();
 </script>
