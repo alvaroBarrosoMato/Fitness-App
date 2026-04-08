@@ -31,15 +31,12 @@
   </header>
 
   <nav class="tabs">
-  <button id="tab-planned" class="active" data-view="planned">
-    <span class="num">01</span>Planeados
-  </button>
-  <button id="tab-past" data-view="past">
-    <span class="num">02</span>Pasados
-  </button>
-  <button id="tab-coach" data-view="coach">
-    <span class="num">03</span>Coach
-  </button>
+    <button id="tab-planned" class="active" data-view="planned">
+      <span class="num">01</span>Planeados
+    </button>
+    <button id="tab-past" data-view="past">
+      <span class="num">02</span>Pasados
+    </button>
   </nav>
 
   <div class="statusbar">
@@ -68,35 +65,55 @@
     <div id="list-past"></div>
   </section>
 </div>
-<section class="view" id="view-coach">
-  <div class="section-header">
-    <h2>Coach virtual</h2>
-    <div class="count">
-      <button id="coach-clear" class="coach-clear-btn" title="Limpiar conversación">Limpiar</button>
-    </div>
-  </div>
- 
-  <div class="coach-shell">
-    <div class="coach-messages" id="coach-messages">
-      <div class="coach-empty">
-        <div class="big">01</div>
-        <p>Pregunta al coach. Puede consultar tus datos y proponer cambios en la rutina.</p>
+
+<!-- ============ COACH FAB (floating chat button) ============ -->
+<button class="coach-fab" id="coach-fab" aria-label="Abrir coach virtual" title="Coach virtual">
+  <svg class="coach-fab-icon-open" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+  <svg class="coach-fab-icon-close" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
+</button>
+
+<!-- ============ COACH OVERLAY ============ -->
+<div class="coach-overlay" id="coach-overlay" aria-hidden="true">
+  <div class="coach-backdrop" id="coach-backdrop"></div>
+  <div class="coach-panel" role="dialog" aria-modal="true" aria-labelledby="coach-panel-title">
+    <header class="coach-panel-head">
+      <div class="coach-panel-title-wrap">
+        <span class="coach-panel-eyebrow">03 · Asistente</span>
+        <h2 id="coach-panel-title">Coach virtual</h2>
       </div>
+      <div class="coach-panel-actions">
+        <button id="coach-clear" class="coach-clear-btn" title="Limpiar conversación">Limpiar</button>
+        <button id="coach-close" class="coach-close-btn" aria-label="Cerrar coach">✕</button>
+      </div>
+    </header>
+
+    <div class="coach-shell">
+      <div class="coach-messages" id="coach-messages">
+        <div class="coach-empty">
+          <div class="big">01</div>
+          <p>Pregunta al coach. Puede consultar tus datos y proponer cambios en la rutina.</p>
+        </div>
+      </div>
+
+      <form class="coach-composer" id="coach-composer" autocomplete="off">
+        <textarea
+          id="coach-input"
+          rows="1"
+          placeholder="Escribe al coach…"
+          autocomplete="off"
+          autocorrect="off"
+        ></textarea>
+        <button type="submit" id="coach-send" aria-label="Enviar">→</button>
+      </form>
     </div>
- 
-    <form class="coach-composer" id="coach-composer" autocomplete="off">
-      <textarea
-        id="coach-input"
-        rows="1"
-        placeholder="Escribe al coach…"
-        autocomplete="off"
-        autocorrect="off"
-      ></textarea>
-      <button type="submit" id="coach-send" aria-label="Enviar">→</button>
-    </form>
   </div>
-</section>
- 
+</div>
+
 <!-- ============ FULL-SCREEN WORKOUT RUNNER ============ -->
 <div class="runner" id="runner">
   <header class="runner-head">

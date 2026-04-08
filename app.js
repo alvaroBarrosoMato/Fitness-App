@@ -2,7 +2,7 @@
 // CONFIG
 // =====================================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbyKyNW3TfVbTsiY8wvncQdyJeB5bOSCh3J5AcEuau4y5-Ue3sktdS7Tu0X7YX7CtZuM8w/exec';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 // =====================================================================
 // LOGGER
@@ -17,6 +17,7 @@ const LOG_STYLES = {
   render: 'color:#888;font-style:italic',
   action: 'color:#4af0ff;font-weight:bold',
   runner: 'color:#4af0ff;font-weight:bold;font-style:italic',
+  coach:  'color:#d4ff3a;font-weight:bold;font-style:italic',
   muted:  'color:#666',
 };
 
@@ -852,9 +853,6 @@ async function failWorkoutFromRunner() {
   }
 }
 
-// Runner controls — moved into installGlobalHandlers() to guarantee
-// they run at a known time and never crash the module at parse-time.
-
 // =====================================================================
 // LOAD
 // =====================================================================
@@ -975,8 +973,9 @@ function openDebugPanel() {
   renderDebugPanel();
   panel.classList.add('open');
 }
+
 // =============================================================
-// COACH VIRTUAL — Añadir al final de app.js (antes del bootstrap)
+// COACH VIRTUAL
 // =============================================================
 
 // ----- STATE -----
@@ -984,11 +983,16 @@ state.coach = {
   loaded: false,
   messages: [],   // { author, message, timestamp, metadata, rowNumber }
   sending: false,
+  open: false,
 };
 
 // ----- DOM HELPERS -----
 function coachDom() {
   return {
+    overlay: document.getElementById('coach-overlay'),
+    backdrop: document.getElementById('coach-backdrop'),
+    fab: document.getElementById('coach-fab'),
+    closeBtn: document.getElementById('coach-close'),
     list: document.getElementById('coach-messages'),
     form: document.getElementById('coach-composer'),
     input: document.getElementById('coach-input'),
@@ -997,11 +1001,54 @@ function coachDom() {
   };
 }
 
+// ----- OPEN / CLOSE OVERLAY -----
+function openCoach() {
+  const { overlay, input } = coachDom();
+  if (!overlay || state.coach.open) return;
+  log('coach', 'openCoach');
+  state.coach.open = true;
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('coach-open');
+
+  // Lazy load on first open
+  if (!state.coach.loaded) {
+    loadCoachHistory();
+  } else {
+    // Scroll to bottom in case layout changed
+    requestAnimationFrame(() => {
+      const { list } = coachDom();
+      if (list) list.scrollTop = list.scrollHeight;
+    });
+  }
+
+  // Focus input after animation settles (avoid viewport jumps on mobile)
+  setTimeout(() => {
+    if (input && window.innerWidth > 640) input.focus();
+  }, 320);
+}
+
+function closeCoach() {
+  const { overlay } = coachDom();
+  if (!overlay || !state.coach.open) return;
+  log('coach', 'closeCoach');
+  state.coach.open = false;
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('coach-open');
+}
+
+function toggleCoach() {
+  if (state.coach.open) closeCoach();
+  else openCoach();
+}
+
 // ----- LOAD HISTORY -----
 async function loadCoachHistory() {
   if (state.coach.loaded) return;
   log('coach', 'loadCoachHistory()');
   const { list } = coachDom();
+  if (!list) return;
   list.innerHTML = `<div class="loading">Cargando conversación</div>`;
   try {
     const history = await apiCall('getChatHistory', { limit: 100 });
@@ -1017,6 +1064,7 @@ async function loadCoachHistory() {
 // ----- RENDER -----
 function renderCoachMessages() {
   const { list } = coachDom();
+  if (!list) return;
   const msgs = state.coach.messages;
 
   if (!msgs.length) {
@@ -1249,7 +1297,7 @@ async function clearCoachChat() {
 // ----- HANDLERS INSTALL -----
 function installCoachHandlers() {
   log('info', 'installCoachHandlers');
-  const { form, input, clear } = coachDom();
+  const { form, input, clear, fab, closeBtn, backdrop, overlay } = coachDom();
   if (!form) { log('warn', 'coach form not found'); return; }
 
   form.addEventListener('submit', e => {
@@ -1273,6 +1321,25 @@ function installCoachHandlers() {
 
   if (clear) clear.addEventListener('click', clearCoachChat);
 
+  // ----- FAB + Overlay open/close -----
+  if (fab) {
+    fab.addEventListener('click', () => toggleCoach());
+  } else {
+    log('warn', 'coach FAB not found');
+  }
+  if (closeBtn) closeBtn.addEventListener('click', () => closeCoach());
+  if (backdrop) backdrop.addEventListener('click', () => closeCoach());
+
+  // ESC closes the overlay (but not if runner is on top)
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!state.coach.open) return;
+    // Runner takes precedence — its own handler will close it
+    const runner = document.getElementById('runner');
+    if (runner && runner.classList.contains('open')) return;
+    closeCoach();
+  });
+
   // Delegación para apply/discard (los botones se re-renderizan constantemente)
   document.addEventListener('click', e => {
     const applyBtn = e.target.closest('[data-coach-apply]');
@@ -1290,26 +1357,6 @@ function installCoachHandlers() {
   });
 }
 
-// ----- TAB LAZY LOAD -----
-// Enganchar en el handler existente de tabs. Como installGlobalHandlers ya
-// tiene un listener delegado en nav.tabs, añadimos un segundo listener que
-// dispara cuando el usuario entra a la pestaña Coach.
-function installCoachTabLazyLoad() {
-  const tabsRoot = document.querySelector('nav.tabs');
-  if (!tabsRoot) return;
-  tabsRoot.addEventListener('click', e => {
-    const btn = e.target.closest('button[data-view="coach"]');
-    if (!btn) return;
-    log('coach', 'coach tab clicked → lazy load');
-    loadCoachHistory();
-  });
-}
-
-// ----- INIT (llamar desde bootstrap) -----
-// En la función bootstrap() existente, añadir tras installGlobalHandlers():
-//   installCoachHandlers();
-//   installCoachTabLazyLoad();
-
 // =====================================================================
 // INIT
 // =====================================================================
@@ -1318,7 +1365,6 @@ function bootstrap() {
     log('info', 'bootstrap() · installGlobalHandlers + loadAll');
     installGlobalHandlers();
     installCoachHandlers();
-    installCoachTabLazyLoad();
     loadAll();
   } catch (err) {
     logErr('bootstrap', err);
