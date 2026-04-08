@@ -12,6 +12,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;1,9..144,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
+<!-- Chart.js for dashboard charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -19,8 +21,31 @@
   <header class="masthead">
     <div class="masthead-top">
       <span>EST. MMXXVI · MADRID</span>
-      <span class="issue">VOL.2.4 (Flash)</span>
+      <span class="issue">VOL.2.5 (Flash)</span>
     </div>
+
+    <!-- ============ MINI CALENDAR STRIP ============ -->
+    <div class="mini-cal" id="mini-cal">
+      <div class="mini-cal-head">
+        <button class="mini-cal-nav" id="mini-cal-prev" aria-label="Mes anterior">‹</button>
+        <div class="mini-cal-title">
+          <span class="mini-cal-month" id="mini-cal-month">—</span>
+          <span class="mini-cal-year" id="mini-cal-year">—</span>
+        </div>
+        <button class="mini-cal-nav" id="mini-cal-next" aria-label="Mes siguiente">›</button>
+      </div>
+      <div class="mini-cal-weekdays">
+        <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+      </div>
+      <div class="mini-cal-grid" id="mini-cal-grid"></div>
+      <div class="mini-cal-legend">
+        <span class="leg"><i class="sw done"></i>Hecho</span>
+        <span class="leg"><i class="sw planned"></i>Planeado</span>
+        <span class="leg"><i class="sw failed"></i>Fallido</span>
+        <span class="leg"><i class="sw skipped"></i>Saltado</span>
+      </div>
+    </div>
+
     <div class="title-row">
       <h1 class="brand">
         Iron Log
@@ -34,8 +59,11 @@
     <button id="tab-planned" class="active" data-view="planned">
       <span class="num">01</span>Planeados
     </button>
+    <button id="tab-dashboard" data-view="dashboard">
+      <span class="num">02</span>Dashboard
+    </button>
     <button id="tab-past" data-view="past">
-      <span class="num">02</span>Pasados
+      <span class="num">03</span>Pasados
     </button>
   </nav>
 
@@ -54,6 +82,77 @@
     </div>
     <div id="today-slot"></div>
     <div id="list-planned"></div>
+  </section>
+
+  <!-- ============ DASHBOARD VIEW ============ -->
+  <section class="view" id="view-dashboard">
+    <div class="section-header">
+      <h2>Panel de mando</h2>
+      <div class="count">Últimas <b id="dash-range">12</b> semanas</div>
+    </div>
+
+    <!-- KPI cards grid -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi">
+        <span class="kpi-label">Completados</span>
+        <span class="kpi-value" id="kpi-completed">—</span>
+        <span class="kpi-sub" id="kpi-completed-sub">total histórico</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Tasa cumplimiento</span>
+        <span class="kpi-value accent" id="kpi-rate">—</span>
+        <span class="kpi-sub" id="kpi-rate-sub">de sesiones no futuras</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Racha actual</span>
+        <span class="kpi-value progress" id="kpi-streak">—</span>
+        <span class="kpi-sub" id="kpi-streak-sub">semanas consecutivas</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Esta semana</span>
+        <span class="kpi-value" id="kpi-week">—</span>
+        <span class="kpi-sub" id="kpi-week-sub">entrenamientos</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Ejercicios totales</span>
+        <span class="kpi-value" id="kpi-exercises">—</span>
+        <span class="kpi-sub">filas en el log</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Media semanal</span>
+        <span class="kpi-value" id="kpi-avg">—</span>
+        <span class="kpi-sub">sesiones · 12 sem.</span>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-card">
+      <div class="chart-head">
+        <h3>Volumen semanal</h3>
+        <span class="chart-sub">Sesiones completadas por semana · últimas 12</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-weekly"></canvas></div>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="chart-head">
+          <h3>Por rutina</h3>
+          <span class="chart-sub">Distribución histórica</span>
+        </div>
+        <div class="chart-wrap small"><canvas id="chart-routines"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-head">
+          <h3>Por estado</h3>
+          <span class="chart-sub">Histórico completo</span>
+        </div>
+        <div class="chart-wrap small"><canvas id="chart-status"></canvas></div>
+      </div>
+    </div>
+
+    <div id="dashboard-loading" class="loading">Calculando métricas</div>
   </section>
 
   <!-- ============ PAST VIEW ============ -->
@@ -83,7 +182,7 @@
   <div class="coach-panel" role="dialog" aria-modal="true" aria-labelledby="coach-panel-title">
     <header class="coach-panel-head">
       <div class="coach-panel-title-wrap">
-        <span class="coach-panel-eyebrow">03 · Asistente</span>
+        <span class="coach-panel-eyebrow">04 · Asistente</span>
         <h2 id="coach-panel-title">Coach virtual</h2>
       </div>
       <div class="coach-panel-actions">

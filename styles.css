@@ -14,6 +14,7 @@
   --warn: #ffaa00;
   --done: #d4ff3a;
   --progress: #4af0ff;
+  --skipped: #6a6863;
   --shadow: 0 20px 60px -20px rgba(0,0,0,.8);
   --radius: 4px;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -88,6 +89,7 @@ header.masthead {
   align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
+  margin-top: 22px;
 }
 
 h1.brand {
@@ -135,10 +137,168 @@ h1.brand .thin {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* =============================================================
+   MINI CALENDAR STRIP
+   ============================================================= */
+.mini-cal {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px 12px;
+  margin-top: 4px;
+}
+
+.mini-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.mini-cal-nav {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-bright);
+  background: var(--bg-elev);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: all .2s;
+}
+.mini-cal-nav:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.mini-cal-title {
+  text-align: center;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.mini-cal-month {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  line-height: 1;
+}
+.mini-cal-year {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-dim);
+  letter-spacing: .15em;
+}
+
+.mini-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.mini-cal-weekdays span {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--ink-faint);
+  letter-spacing: .1em;
+}
+
+.mini-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.mc-day {
+  aspect-ratio: 1 / 1;
+  border-radius: 3px;
+  background: var(--bg-elev);
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  position: relative;
+  transition: transform .15s, box-shadow .15s;
+  cursor: default;
+}
+.mc-day.empty { background: transparent; }
+.mc-day.has-workout { cursor: pointer; }
+.mc-day.has-workout:hover { transform: scale(1.08); }
+
+.mc-day.done {
+  background: var(--done);
+  color: #000;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(212,255,58,.3);
+}
+.mc-day.planned {
+  background: var(--warn);
+  color: #000;
+  font-weight: 700;
+}
+.mc-day.failed {
+  background: var(--danger);
+  color: #000;
+  font-weight: 700;
+}
+.mc-day.skipped {
+  background: var(--skipped);
+  color: var(--ink);
+  font-weight: 700;
+}
+.mc-day.in-progress {
+  background: var(--progress);
+  color: #000;
+  font-weight: 700;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.mc-day.today {
+  outline: 2px solid var(--progress);
+  outline-offset: -1px;
+  box-shadow: 0 0 12px rgba(74,240,255,.45);
+  z-index: 2;
+}
+.mc-day.future {
+  color: var(--ink-faint);
+}
+
+.mini-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-bright);
+}
+.mini-cal-legend .leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--ink-dim);
+}
+.mini-cal-legend .sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.mini-cal-legend .sw.done    { background: var(--done); }
+.mini-cal-legend .sw.planned { background: var(--warn); }
+.mini-cal-legend .sw.failed  { background: var(--danger); }
+.mini-cal-legend .sw.skipped { background: var(--skipped); }
+
 /* ============ TABS ============ */
 nav.tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid var(--line);
   margin-bottom: 28px;
   position: sticky;
@@ -156,7 +316,7 @@ nav.tabs button {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .12em;
-  padding: 18px 8px;
+  padding: 18px 6px;
   cursor: pointer;
   position: relative;
   transition: color .2s;
@@ -234,6 +394,113 @@ nav.tabs button.active::after {
   font-weight: 700;
   font-size: 14px;
 }
+
+/* =============================================================
+   DASHBOARD
+   ============================================================= */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.kpi {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 14px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: var(--line-bright);
+}
+.kpi:nth-child(1)::before { background: var(--accent); }
+.kpi:nth-child(2)::before { background: var(--accent); }
+.kpi:nth-child(3)::before { background: var(--progress); }
+.kpi:nth-child(4)::before { background: var(--warn); }
+.kpi:nth-child(5)::before { background: var(--ink-dim); }
+.kpi:nth-child(6)::before { background: var(--accent-dim); }
+
+.kpi-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .15em;
+  color: var(--ink-faint);
+  margin-bottom: 8px;
+}
+.kpi-value {
+  display: block;
+  font-family: var(--display);
+  font-size: 38px;
+  line-height: .9;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.kpi-value.accent { color: var(--accent); }
+.kpi-value.progress { color: var(--progress); }
+.kpi-sub {
+  display: block;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-top: 4px;
+}
+
+/* Chart cards */
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 18px 16px;
+  margin-bottom: 16px;
+}
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line-bright);
+}
+.chart-head h3 {
+  font-family: var(--display);
+  font-size: 20px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  line-height: 1;
+}
+.chart-head .chart-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--ink-dim);
+  text-align: right;
+}
+.chart-wrap {
+  position: relative;
+  height: 260px;
+}
+.chart-wrap.small { height: 220px; }
+.chart-wrap canvas { max-width: 100%; }
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+#dashboard-loading { display: none; }
+#dashboard-loading.show { display: block; }
 
 /* ============ TODAY SLOT ============ */
 .today-block {
@@ -382,6 +649,7 @@ nav.tabs button.active::after {
 .workout[data-status="Planeado"]::before { background: var(--warn); }
 .workout[data-status="Completado"]::before { background: var(--done); }
 .workout[data-status="Fallido"]::before { background: var(--danger); }
+.workout[data-status="Saltado"]::before { background: var(--skipped); }
 .workout[data-status="En Progreso"]::before {
   background: var(--progress);
   animation: pulse 1.5s ease-in-out infinite;
@@ -1011,6 +1279,12 @@ nav.tabs button.active::after {
 .runner-dot.done { background: var(--accent); }
 
 /* ============ MOBILE TWEAKS ============ */
+@media (max-width: 640px) {
+  .chart-row { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 32px; }
+}
+
 @media (max-width: 520px) {
   .app { padding: 0 16px 120px; }
   header.masthead { padding: 24px 0 16px; }
@@ -1022,6 +1296,18 @@ nav.tabs button.active::after {
   .slide { padding: 24px 18px; }
   .runner-foot { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
   .runner-nav { padding: 11px 12px; font-size: 9px; }
+
+  nav.tabs button { padding: 16px 4px; font-size: 10px; letter-spacing: .08em; }
+  nav.tabs button .num { font-size: 8px; margin-right: 2px; }
+
+  .mini-cal { padding: 12px 12px 10px; }
+  .mini-cal-month { font-size: 20px; }
+  .mc-day { font-size: 10px; }
+  .mini-cal-legend { gap: 8px 10px; }
+
+  .chart-wrap { height: 220px; }
+  .chart-wrap.small { height: 200px; }
+  .chart-head h3 { font-size: 18px; }
 }
 
 /* =============================================================

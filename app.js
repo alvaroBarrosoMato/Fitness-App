@@ -2,7 +2,21 @@
 // CONFIG
 // =====================================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbyKyNW3TfVbTsiY8wvncQdyJeB5bOSCh3J5AcEuau4y5-Ue3sktdS7Tu0X7YX7CtZuM8w/exec';
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
+
+// Chart.js theme palette (matches CSS vars)
+const CHART_COLORS = {
+  accent:   '#d4ff3a',
+  progress: '#4af0ff',
+  warn:     '#ffaa00',
+  danger:   '#ff5544',
+  skipped:  '#6a6863',
+  ink:      '#f5f1e8',
+  inkDim:   '#8a8680',
+  inkFaint: '#4a4843',
+  line:     '#262421',
+  lineBright: '#363430',
+};
 
 // =====================================================================
 // LOGGER
@@ -18,11 +32,11 @@ const LOG_STYLES = {
   action: 'color:#4af0ff;font-weight:bold',
   runner: 'color:#4af0ff;font-weight:bold;font-style:italic',
   coach:  'color:#d4ff3a;font-weight:bold;font-style:italic',
+  dash:   'color:#ffaa00;font-weight:bold',
+  cal:    'color:#ffaa00;font-weight:bold;font-style:italic',
   muted:  'color:#666',
 };
 
-// In-memory log ring buffer so we can dump it into an on-screen debug panel
-// (useful on mobile where the console is not accessible).
 const LOG_BUFFER = [];
 const LOG_MAX = 300;
 function pushLog(tag, args) {
@@ -37,7 +51,6 @@ function pushLog(tag, args) {
   } catch { text = '[unserializable]'; }
   LOG_BUFFER.push({ ts, tag, text });
   if (LOG_BUFFER.length > LOG_MAX) LOG_BUFFER.shift();
-  // Live update panel if open
   if (typeof renderDebugPanel === 'function') renderDebugPanel();
 }
 
@@ -73,16 +86,19 @@ log('info', 'Viewport:', window.innerWidth + 'x' + window.innerHeight);
 // STATE
 // =====================================================================
 const state = {
-  planned: [],
-  past: [],
-  // Workouts the user has started locally (no backend "En Progreso" status)
-  // key: `${date}__${routine}` → boolean
+  allWorkouts: [],   // full list (all statuses) — source of truth
+  planned: [],       // derived: status Planeado
+  past: [],          // derived: status Completado
   inProgress: {},
-  // Per-row achievedDetails edits made during runner
-  // key: rowNumber → string
   edits: {},
-  // Currently running workout in the runner overlay
   runner: null,
+  // Mini calendar
+  calendarMonth: null,   // Date pointing at first day of current viewed month
+  // Dashboard
+  dashboard: {
+    rendered: false,
+    charts: {}, // chartId → Chart instance (for destroy on re-render)
+  },
 };
 
 // =====================================================================
@@ -119,7 +135,6 @@ async function apiCall(action, params = {}, body = null) {
     }
     const ms = (performance.now() - t0).toFixed(0);
     log('api', `Response: HTTP ${res.status} ${res.statusText} (${ms}ms)`);
-    log('api', 'Final URL (after redirects):', res.url);
 
     if (!res.ok) {
       const text = await res.text().catch(() => '(no body)');
@@ -163,6 +178,7 @@ async function apiCall(action, params = {}, body = null) {
 // UTILS
 // =====================================================================
 const MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MONTHS_ES_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const WEEKDAYS_ES = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
 function todayYMD() {
@@ -172,6 +188,9 @@ function todayYMD() {
 function parseYMD(s) {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d, 12);
+}
+function ymd(date) {
+  return [date.getFullYear(), String(date.getMonth()+1).padStart(2,'0'), String(date.getDate()).padStart(2,'0')].join('-');
 }
 function formatDay(dateStr) {
   const d = parseYMD(dateStr);
@@ -198,13 +217,8 @@ function escapeHtml(s) {
   }[c]));
 }
 
-function attrSafe(s) {
-  // Encode for use inside data-* attributes
-  return encodeURIComponent(String(s ?? ''));
-}
-function attrDecode(s) {
-  return decodeURIComponent(String(s ?? ''));
-}
+function attrSafe(s) { return encodeURIComponent(String(s ?? '')); }
+function attrDecode(s) { return decodeURIComponent(String(s ?? '')); }
 
 function toast(msg, isErr = false) {
   const el = document.getElementById('toast');
@@ -215,7 +229,6 @@ function toast(msg, isErr = false) {
   toast._t = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
-// Apply local "En Progreso" overlay onto a workout list
 function applyInProgressOverlay(list) {
   list.forEach(w => {
     if (state.inProgress[workoutKey(w)]) {
@@ -223,6 +236,24 @@ function applyInProgressOverlay(list) {
       w.exercises.forEach(ex => ex.status = 'En Progreso');
     }
   });
+}
+
+// ISO week number (for weekly aggregation)
+function isoWeekKey(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+// Monday of a given date (local)
+function mondayOf(date) {
+  const d = new Date(date);
+  const day = d.getDay() || 7;
+  if (day !== 1) d.setDate(d.getDate() - (day - 1));
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 // =====================================================================
@@ -234,14 +265,12 @@ function renderPlanned() {
 
   applyInProgressOverlay(state.planned);
 
-  // ----- TODAY SLOT -----
   const today = todayYMD();
   const todayWorkouts = state.planned.filter(w => w.date === today);
   const todaySlot = document.getElementById('today-slot');
   const td = formatDay(today);
 
   if (todayWorkouts.length > 0) {
-    log('render', `Hoy (${today}) tiene ${todayWorkouts.length} entrenamiento(s)`);
     todaySlot.innerHTML = `
       <div class="today-block">
         <div class="today-tag">Hoy · ${td.weekday} ${td.num} ${td.month}</div>
@@ -249,7 +278,6 @@ function renderPlanned() {
       </div>
     `;
   } else {
-    log('render', `Hoy (${today}) es día de descanso`);
     todaySlot.innerHTML = `
       <div class="today-block">
         <div class="today-tag">Hoy · ${td.weekday} ${td.num} ${td.month}</div>
@@ -262,7 +290,6 @@ function renderPlanned() {
     `;
   }
 
-  // ----- UPCOMING (excluding today) -----
   const list = document.getElementById('list-planned');
   const upcoming = state.planned.filter(w => w.date !== today);
 
@@ -270,7 +297,6 @@ function renderPlanned() {
     list.innerHTML = '';
   } else {
     const groups = groupByDate(upcoming);
-    // Future first, ordered ascending by date
     groups.sort((a,b) => a.date.localeCompare(b.date));
     list.innerHTML = groups.map(g => {
       const d = formatDay(g.date);
@@ -288,8 +314,6 @@ function renderPlanned() {
       `;
     }).join('');
   }
-
-  attachWorkoutHandlers();
 }
 
 // =====================================================================
@@ -321,8 +345,6 @@ function renderPast() {
       </div>
     `;
   }).join('');
-
-  attachWorkoutHandlers();
 }
 
 // =====================================================================
@@ -390,19 +412,17 @@ function renderWorkoutCard(w, mode) {
 
 function findWorkoutByKey(key) {
   return state.planned.find(w => workoutKey(w) === key)
-      || state.past.find(w => workoutKey(w) === key);
+      || state.past.find(w => workoutKey(w) === key)
+      || state.allWorkouts.find(w => workoutKey(w) === key);
 }
 
-// No-op: kept for backwards compatibility with existing render calls.
-// Event handling is now done via global delegation — see installGlobalHandlers().
-function attachWorkoutHandlers() { /* delegation handles everything */ }
-
-// Install ONCE at startup. Delegates clicks from document root.
-// This survives any number of re-renders without duplicate listeners.
+// =====================================================================
+// GLOBAL HANDLERS
+// =====================================================================
 function installGlobalHandlers() {
   log('info', 'installGlobalHandlers · delegation listeners attached');
 
-  // -------- TABS (delegated) --------
+  // -------- TABS --------
   const tabsRoot = document.querySelector('nav.tabs');
   if (tabsRoot) {
     tabsRoot.addEventListener('click', (e) => {
@@ -414,9 +434,12 @@ function installGlobalHandlers() {
       btn.classList.add('active');
       const view = document.getElementById('view-' + btn.dataset.view);
       if (view) view.classList.add('active');
+
+      // Lazy-render dashboard on first entry (and re-render if not yet done)
+      if (btn.dataset.view === 'dashboard') {
+        renderDashboard();
+      }
     });
-  } else {
-    log('warn', 'nav.tabs no encontrado');
   }
 
   // -------- RUNNER CONTROLS --------
@@ -438,7 +461,6 @@ function installGlobalHandlers() {
     });
   }
 
-  // -------- KEYBOARD NAVIGATION (runner) --------
   document.addEventListener('keydown', (e) => {
     const runner = dom.runner;
     if (!runner || !runner.classList.contains('open')) return;
@@ -447,29 +469,36 @@ function installGlobalHandlers() {
     if (e.key === 'ArrowLeft') goToSlide(state.runner.currentIndex - 1);
   });
 
-  // -------- STATUSBAR (click para ver log) --------
   const statusbar = document.querySelector('.statusbar');
   if (statusbar) {
     statusbar.style.cursor = 'pointer';
     statusbar.addEventListener('click', () => openDebugPanel());
   }
 
-  // -------- CARD CLICKS (delegated at document) --------
+  // -------- MINI CALENDAR NAV --------
+  const calPrev = document.getElementById('mini-cal-prev');
+  const calNext = document.getElementById('mini-cal-next');
+  if (calPrev) calPrev.addEventListener('click', () => {
+    state.calendarMonth.setMonth(state.calendarMonth.getMonth() - 1);
+    renderMiniCalendar();
+  });
+  if (calNext) calNext.addEventListener('click', () => {
+    state.calendarMonth.setMonth(state.calendarMonth.getMonth() + 1);
+    renderMiniCalendar();
+  });
+
+  // -------- CARD CLICKS --------
   document.addEventListener('click', async (e) => {
-    // --- 1) ACTION BUTTONS (start / resume / skip) ---
     const btn = e.target.closest('.btn[data-action]');
     if (btn) {
       e.preventDefault();
       e.stopPropagation();
       const action = btn.dataset.action;
       const key = attrDecode(btn.dataset.key);
-      log('action', `Delegated click: ${action} → ${key}`);
-      if (btn.disabled) { log('warn', 'Botón deshabilitado, ignorado'); return; }
+      if (btn.disabled) return;
 
       const workout = findWorkoutByKey(key);
       if (!workout) {
-        log('warn', 'Workout no encontrado para key:', key);
-        log('warn', 'Planned keys disponibles:', state.planned.map(workoutKey));
         toast('No se encuentra el entrenamiento', true);
         return;
       }
@@ -477,10 +506,8 @@ function installGlobalHandlers() {
       btn.disabled = true;
       try {
         if (action === 'start' || action === 'resume') {
-          log('action', '→ openRunner()');
           openRunner(workout);
         } else if (action === 'skip') {
-          log('action', '→ markWorkoutStatus(Saltado)');
           await markWorkoutStatus(workout, 'Saltado');
         }
       } catch (err) {
@@ -492,13 +519,29 @@ function installGlobalHandlers() {
       return;
     }
 
-    // --- 2) WORKOUT HEAD (toggle expand/collapse) ---
     const head = e.target.closest('.workout-head[data-toggle]');
     if (head) {
       const card = head.closest('.workout');
-      if (card) {
-        card.classList.toggle('open');
-        log('action', `Toggle card: ${card.classList.contains('open') ? 'open' : 'closed'} · ${attrDecode(card.dataset.key || '')}`);
+      if (card) card.classList.toggle('open');
+      return;
+    }
+
+    // Mini-calendar day click → jump to workout tab if that day has a workout
+    const calDay = e.target.closest('.mc-day.has-workout');
+    if (calDay && calDay.dataset.date) {
+      const date = calDay.dataset.date;
+      const w = state.allWorkouts.find(w => w.date === date);
+      if (w) {
+        const targetTab = (w.status === 'Completado') ? 'past' : 'planned';
+        const tabBtn = document.querySelector(`nav.tabs button[data-view="${targetTab}"]`);
+        if (tabBtn) tabBtn.click();
+        setTimeout(() => {
+          const card = document.querySelector(`.workout[data-key="${attrSafe(workoutKey(w))}"]`);
+          if (card) {
+            card.classList.add('open');
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 120);
       }
       return;
     }
@@ -506,7 +549,7 @@ function installGlobalHandlers() {
 }
 
 // =====================================================================
-// MARK STATUS (Saltado / Fallido)
+// MARK STATUS
 // =====================================================================
 async function markWorkoutStatus(w, status) {
   log('action', `markWorkoutStatus: ${w.date} / ${w.routine} → ${status}`);
@@ -514,17 +557,14 @@ async function markWorkoutStatus(w, status) {
     match: { date: w.date, routine: w.routine },
     updates: { status },
   });
-  // Clear local in-progress flag if any
   delete state.inProgress[workoutKey(w)];
   toast(`Marcado como ${status}`);
   await loadAll();
 }
 
 // =====================================================================
-// RUNNER (Full-screen workout flow with horizontal slides)
+// RUNNER
 // =====================================================================
-// Lazy DOM refs — resolved on first access so the script never crashes
-// at parse-time if an ID is missing. Fails loudly (not silently) at use.
 function $(id) {
   const el = document.getElementById(id);
   if (!el) log('warn', `#${id} no existe en el DOM`);
@@ -544,25 +584,18 @@ const dom = {
 
 function openRunner(workout) {
   log('runner', `openRunner: ${workout.date} / ${workout.routine}`);
-
-  // Mark as in progress (UI only)
   const key = workoutKey(workout);
   state.inProgress[key] = true;
   workout.status = 'En Progreso';
   workout.exercises.forEach(ex => ex.status = 'En Progreso');
 
-  state.runner = {
-    workout,
-    currentIndex: 0,
-    notes: '',
-  };
+  state.runner = { workout, currentIndex: 0, notes: '' };
 
   dom.routine.textContent = workout.routine;
   buildRunnerSlides();
   dom.runner.classList.add('open');
   document.body.style.overflow = 'hidden';
 
-  // Reset scroll to first slide after a tick (need DOM laid out)
   requestAnimationFrame(() => {
     dom.track.scrollLeft = 0;
     updateRunnerUI(0);
@@ -570,7 +603,6 @@ function openRunner(workout) {
 }
 
 function closeRunner() {
-  log('runner', 'closeRunner');
   dom.runner.classList.remove('open');
   document.body.style.overflow = '';
   state.runner = null;
@@ -622,7 +654,6 @@ function buildRunnerSlides() {
     `;
   }).join('');
 
-  // Summary slide (last)
   const summarySlide = `
     <div class="slide summary" data-slide-index="${total}" data-summary>
       <div class="slide-eyebrow"><b>RESUMEN</b> · ${escapeHtml(workout.routine)}</div>
@@ -643,22 +674,18 @@ function buildRunnerSlides() {
 
   dom.track.innerHTML = exerciseSlides + summarySlide;
 
-  // Build dots (one per slide including summary)
   const totalSlides = total + 1;
   dom.dots.innerHTML = Array.from({length: totalSlides}, (_, i) =>
     `<div class="runner-dot" data-dot="${i}"></div>`
   ).join('');
 
-  // Listeners on inputs (save edits live)
   dom.track.querySelectorAll('.ex-runner-input').forEach(inp => {
     inp.addEventListener('input', e => {
       const row = e.target.dataset.row;
       state.edits[row] = e.target.value;
-      log('runner', `edit row ${row}: "${e.target.value}"`);
     });
   });
 
-  // Notes textarea on summary
   const notesEl = dom.track.querySelector('#summary-notes');
   if (notesEl) {
     notesEl.addEventListener('input', e => {
@@ -666,13 +693,11 @@ function buildRunnerSlides() {
     });
   }
 
-  // Summary buttons
   const completeBtn = dom.track.querySelector('#btn-complete-workout');
   if (completeBtn) completeBtn.addEventListener('click', () => completeWorkoutFromRunner());
   const failBtn = dom.track.querySelector('#btn-fail-workout');
   if (failBtn) failBtn.addEventListener('click', () => failWorkoutFromRunner());
 
-  // Track scroll → snap detection
   let scrollTimeout = null;
   dom.track.addEventListener('scroll', () => {
     clearTimeout(scrollTimeout);
@@ -688,9 +713,7 @@ function buildRunnerSlides() {
 function handleSlideChange(newIdx) {
   if (!state.runner) return;
   const oldIdx = state.runner.currentIndex;
-  log('runner', `slide change ${oldIdx} → ${newIdx}`);
 
-  // If we are LEAVING an exercise slide (going forward), persist the edit to API
   if (newIdx > oldIdx && oldIdx < state.runner.workout.exercises.length) {
     const leavingEx = state.runner.workout.exercises[oldIdx];
     persistExercise(leavingEx).catch(err => {
@@ -702,7 +725,6 @@ function handleSlideChange(newIdx) {
   state.runner.currentIndex = newIdx;
   updateRunnerUI(newIdx);
 
-  // Build summary if landing on summary slide
   if (newIdx === state.runner.workout.exercises.length) {
     buildSummaryList();
   }
@@ -710,18 +732,11 @@ function handleSlideChange(newIdx) {
 
 async function persistExercise(ex) {
   const achieved = state.edits[ex.rowNumber];
-  // Only call API if user actually entered something different
-  // (Falsy / unchanged → skip until final completion)
-  if (achieved === undefined || achieved === '') {
-    log('runner', `persistExercise skipped (no edit) · row ${ex.rowNumber}`);
-    return;
-  }
-  log('runner', `persistExercise · row ${ex.rowNumber} = "${achieved}"`);
+  if (achieved === undefined || achieved === '') return;
   await apiCall('updateExercise', {}, {
     match: { rowNumber: ex.rowNumber },
     updates: { achievedDetails: achieved },
   });
-  // Update local model so summary reflects it
   ex.achievedDetails = achieved;
   toast('✓ Guardado');
 }
@@ -730,24 +745,20 @@ function updateRunnerUI(idx) {
   const total = state.runner.workout.exercises.length;
   const totalSlides = total + 1;
 
-  // Header progress
   if (idx < total) {
     dom.progress.textContent = `Ejercicio ${idx + 1} / ${total}`;
   } else {
     dom.progress.textContent = `Resumen final`;
   }
 
-  // Bar
   const pct = ((idx) / (totalSlides - 1)) * 100;
   dom.barFill.style.width = pct + '%';
 
-  // Dots
   dom.dots.querySelectorAll('.runner-dot').forEach((d, i) => {
     d.classList.toggle('active', i === idx);
     d.classList.toggle('done', i < idx);
   });
 
-  // Nav buttons
   dom.prev.disabled = idx === 0;
   if (idx === totalSlides - 1) {
     dom.next.style.visibility = 'hidden';
@@ -759,9 +770,8 @@ function updateRunnerUI(idx) {
 
 function goToSlide(idx) {
   const total = state.runner.workout.exercises.length;
-  const max = total; // summary index
+  const max = total;
   idx = Math.max(0, Math.min(idx, max));
-  log('runner', `goToSlide(${idx})`);
   dom.track.scrollTo({ left: idx * dom.track.clientWidth, behavior: 'smooth' });
 }
 
@@ -788,7 +798,6 @@ function buildSummaryList() {
 async function completeWorkoutFromRunner() {
   if (!state.runner) return;
   const { workout, notes } = state.runner;
-  log('runner', `completeWorkoutFromRunner: ${workout.date} / ${workout.routine}`);
 
   const completeBtn = document.getElementById('btn-complete-workout');
   const failBtn = document.getElementById('btn-fail-workout');
@@ -805,17 +814,14 @@ async function completeWorkoutFromRunner() {
         ? edited
         : (ex.achievedDetails || ex.targetDetails || '');
 
-      // If we have notes, append to first exercise's notes field (only on first iter)
       const updates = {
         achievedDetails: finalAchieved,
         status: 'Completado',
       };
       if (updated === 0 && notes && notes.trim()) {
-        // Preserve existing notes by prepending
         updates.notes = ex.notes ? `${ex.notes} | ${notes.trim()}` : notes.trim();
       }
 
-      log('runner', `  → row ${ex.rowNumber} (${ex.exercise}): achieved="${finalAchieved}"`);
       await apiCall('updateExercise', {}, {
         match: { rowNumber: ex.rowNumber },
         updates,
@@ -824,7 +830,6 @@ async function completeWorkoutFromRunner() {
       updated++;
     }
     delete state.inProgress[workoutKey(workout)];
-    log('ok', `✓ ${updated} ejercicios guardados`);
     toast(`✓ Sesión completada`);
     closeRunner();
     await loadAll();
@@ -839,7 +844,6 @@ async function completeWorkoutFromRunner() {
 async function failWorkoutFromRunner() {
   if (!state.runner) return;
   const { workout } = state.runner;
-  log('runner', `failWorkoutFromRunner: ${workout.date} / ${workout.routine}`);
   const completeBtn = document.getElementById('btn-complete-workout');
   const failBtn = document.getElementById('btn-fail-workout');
   if (completeBtn) completeBtn.disabled = true;
@@ -851,6 +855,384 @@ async function failWorkoutFromRunner() {
     if (completeBtn) completeBtn.disabled = false;
     if (failBtn) failBtn.disabled = false;
   }
+}
+
+// =====================================================================
+// MINI CALENDAR
+// =====================================================================
+function initMiniCalendar() {
+  if (!state.calendarMonth) {
+    const now = new Date();
+    state.calendarMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+}
+
+// Map: date (YMD) → best status to display (priority order)
+function buildCalendarStatusMap() {
+  const map = {};
+  const priority = { 'En Progreso': 5, 'Completado': 4, 'Fallido': 3, 'Planeado': 2, 'Saltado': 1 };
+  state.allWorkouts.forEach(w => {
+    const key = w.date;
+    // apply in-progress overlay
+    const status = state.inProgress[workoutKey(w)] ? 'En Progreso' : w.status;
+    if (!map[key] || (priority[status] || 0) > (priority[map[key].status] || 0)) {
+      map[key] = { status, routine: w.routine };
+    }
+  });
+  return map;
+}
+
+function statusCssClass(status) {
+  switch (status) {
+    case 'Completado':   return 'done';
+    case 'Planeado':     return 'planned';
+    case 'Fallido':      return 'failed';
+    case 'Saltado':      return 'skipped';
+    case 'En Progreso':  return 'in-progress';
+    default:             return '';
+  }
+}
+
+function renderMiniCalendar() {
+  initMiniCalendar();
+  const grid = document.getElementById('mini-cal-grid');
+  const monthLabel = document.getElementById('mini-cal-month');
+  const yearLabel = document.getElementById('mini-cal-year');
+  if (!grid) return;
+
+  const viewed = state.calendarMonth;
+  const year = viewed.getFullYear();
+  const month = viewed.getMonth();
+
+  monthLabel.textContent = MONTHS_ES_FULL[month];
+  yearLabel.textContent = year;
+
+  const statusMap = buildCalendarStatusMap();
+  const today = todayYMD();
+
+  // First day of month, aligned to Monday-first week
+  const firstDay = new Date(year, month, 1);
+  let leadingEmpty = firstDay.getDay() - 1; // 0 = Mon
+  if (leadingEmpty < 0) leadingEmpty = 6;   // Sunday → 6
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < leadingEmpty; i++) {
+    cells.push(`<div class="mc-day empty"></div>`);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = ymd(new Date(year, month, d));
+    const info = statusMap[dateStr];
+    const isToday = dateStr === today;
+    const isFuture = dateStr > today;
+    const cls = [];
+    if (info) {
+      cls.push('has-workout');
+      cls.push(statusCssClass(info.status));
+    } else if (isFuture) {
+      cls.push('future');
+    }
+    if (isToday) cls.push('today');
+    const title = info ? `${dateStr} · ${info.routine} (${info.status})` : dateStr;
+    cells.push(`<div class="mc-day ${cls.join(' ')}" data-date="${dateStr}" title="${escapeHtml(title)}">${d}</div>`);
+  }
+
+  // Trailing to complete the last week
+  const totalCells = leadingEmpty + daysInMonth;
+  const trailing = (7 - (totalCells % 7)) % 7;
+  for (let i = 0; i < trailing; i++) {
+    cells.push(`<div class="mc-day empty"></div>`);
+  }
+
+  grid.innerHTML = cells.join('');
+  log('cal', `renderMiniCalendar · ${MONTHS_ES_FULL[month]} ${year} · ${Object.keys(statusMap).length} días con workout`);
+}
+
+// =====================================================================
+// DASHBOARD · KPIs + Charts
+// =====================================================================
+function computeDashboardData() {
+  const all = state.allWorkouts;
+  const today = todayYMD();
+
+  const past = all.filter(w => w.status === 'Completado');
+  const future = all.filter(w => w.status === 'Planeado' && w.date > today);
+  const overdue = all.filter(w => w.status === 'Planeado' && w.date <= today);
+  const failed = all.filter(w => w.status === 'Fallido');
+  const skipped = all.filter(w => w.status === 'Saltado');
+
+  // Adherence rate: completed / (completed + failed + skipped + overdue planned)
+  const accountable = past.length + failed.length + skipped.length + overdue.length;
+  const rate = accountable > 0 ? Math.round((past.length / accountable) * 100) : 0;
+
+  // Weekly buckets (last 12 weeks, Monday-based, LOCAL time)
+  const weeks = [];
+  const thisMonday = mondayOf(new Date());
+  for (let i = 11; i >= 0; i--) {
+    const monday = new Date(thisMonday);
+    monday.setDate(monday.getDate() - i * 7);
+    const weekKey = ymd(monday);
+    weeks.push({
+      monday,
+      key: weekKey,
+      label: `${String(monday.getDate()).padStart(2,'0')} ${MONTHS_ES[monday.getMonth()]}`,
+      count: 0,
+    });
+  }
+  past.forEach(w => {
+    const d = parseYMD(w.date);
+    const wMonday = mondayOf(d);
+    const key = ymd(wMonday);
+    const bucket = weeks.find(b => b.key === key);
+    if (bucket) bucket.count += 1;
+  });
+
+  // Current streak: consecutive weeks (up to and including current) with ≥1 completed
+  let streak = 0;
+  for (let i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i].count > 0) streak++;
+    else break;
+  }
+
+  // This week count
+  const thisWeekKey = ymd(thisMonday);
+  const thisWeek = weeks.find(b => b.key === thisWeekKey);
+  const thisWeekCount = thisWeek ? thisWeek.count : 0;
+
+  // Average per week over last 12 weeks
+  const avg = weeks.reduce((a, b) => a + b.count, 0) / weeks.length;
+
+  // Total exercises across all rows
+  const totalExercises = all.reduce((a, w) => a + (w.exercises ? w.exercises.length : 0), 0);
+
+  // By routine (all statuses)
+  const byRoutine = {};
+  all.forEach(w => {
+    if (!byRoutine[w.routine]) byRoutine[w.routine] = 0;
+    byRoutine[w.routine] += 1;
+  });
+  const routinesSorted = Object.entries(byRoutine)
+    .sort((a, b) => b[1] - a[1]);
+
+  // By status
+  const byStatus = {
+    'Completado': past.length,
+    'Planeado': overdue.length + future.length,
+    'Fallido': failed.length,
+    'Saltado': skipped.length,
+  };
+
+  return {
+    totals: {
+      completed: past.length,
+      rate,
+      streak,
+      thisWeekCount,
+      totalExercises,
+      avg,
+    },
+    weeks,
+    routines: routinesSorted,
+    status: byStatus,
+  };
+}
+
+function renderDashboard() {
+  if (typeof Chart === 'undefined') {
+    log('warn', 'Chart.js no cargado, reintentando en 250ms');
+    setTimeout(renderDashboard, 250);
+    return;
+  }
+
+  const data = computeDashboardData();
+  log('dash', 'renderDashboard · KPIs:', data.totals);
+
+  // ---- KPI cards ----
+  const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setText('kpi-completed', data.totals.completed);
+  setText('kpi-completed-sub', `${data.totals.completed === 1 ? 'sesión completada' : 'sesiones completadas'}`);
+  setText('kpi-rate', data.totals.rate + '%');
+  setText('kpi-streak', data.totals.streak);
+  setText('kpi-streak-sub', data.totals.streak === 1 ? 'semana consecutiva' : 'semanas consecutivas');
+  setText('kpi-week', data.totals.thisWeekCount);
+  setText('kpi-week-sub', data.totals.thisWeekCount === 1 ? 'entrenamiento' : 'entrenamientos');
+  setText('kpi-exercises', data.totals.totalExercises);
+  setText('kpi-avg', data.totals.avg.toFixed(1));
+
+  // ---- Charts ----
+  const charts = state.dashboard.charts;
+
+  // Shared theme tweaks
+  Chart.defaults.color = CHART_COLORS.inkDim;
+  Chart.defaults.font.family = "'JetBrains Mono', ui-monospace, monospace";
+  Chart.defaults.font.size = 10;
+  Chart.defaults.borderColor = CHART_COLORS.line;
+
+  // --- Weekly bars ---
+  const weeklyCanvas = document.getElementById('chart-weekly');
+  if (weeklyCanvas) {
+    if (charts.weekly) charts.weekly.destroy();
+    charts.weekly = new Chart(weeklyCanvas, {
+      type: 'bar',
+      data: {
+        labels: data.weeks.map(w => w.label),
+        datasets: [{
+          label: 'Sesiones',
+          data: data.weeks.map(w => w.count),
+          backgroundColor: data.weeks.map((w, i) =>
+            i === data.weeks.length - 1 ? CHART_COLORS.progress : CHART_COLORS.accent
+          ),
+          borderRadius: 3,
+          borderSkipped: false,
+          maxBarThickness: 34,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0a0a0a',
+            borderColor: CHART_COLORS.lineBright,
+            borderWidth: 1,
+            titleColor: CHART_COLORS.ink,
+            bodyColor: CHART_COLORS.accent,
+            padding: 10,
+            displayColors: false,
+            callbacks: {
+              label: ctx => `${ctx.parsed.y} ${ctx.parsed.y === 1 ? 'sesión' : 'sesiones'}`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: CHART_COLORS.inkFaint, maxRotation: 0, autoSkip: true, autoSkipPadding: 8 },
+            border: { color: CHART_COLORS.line },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              color: CHART_COLORS.inkFaint,
+              stepSize: 1,
+              precision: 0,
+            },
+            grid: { color: CHART_COLORS.line },
+            border: { display: false },
+          },
+        },
+      },
+    });
+  }
+
+  // --- Routines doughnut ---
+  const routinesCanvas = document.getElementById('chart-routines');
+  if (routinesCanvas) {
+    if (charts.routines) charts.routines.destroy();
+    const palette = [
+      CHART_COLORS.accent,
+      CHART_COLORS.progress,
+      CHART_COLORS.warn,
+      '#8a9f1f',
+      '#6ff5ff',
+      '#e08a00',
+      CHART_COLORS.danger,
+      CHART_COLORS.skipped,
+    ];
+    charts.routines = new Chart(routinesCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: data.routines.map(r => r[0] || '—'),
+        datasets: [{
+          data: data.routines.map(r => r[1]),
+          backgroundColor: data.routines.map((_, i) => palette[i % palette.length]),
+          borderColor: '#0a0a0a',
+          borderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: CHART_COLORS.inkDim,
+              boxWidth: 10,
+              boxHeight: 10,
+              padding: 10,
+              font: { size: 10 },
+            },
+          },
+          tooltip: {
+            backgroundColor: '#0a0a0a',
+            borderColor: CHART_COLORS.lineBright,
+            borderWidth: 1,
+            titleColor: CHART_COLORS.ink,
+            bodyColor: CHART_COLORS.accent,
+            padding: 10,
+          },
+        },
+      },
+    });
+  }
+
+  // --- Status horizontal bars ---
+  const statusCanvas = document.getElementById('chart-status');
+  if (statusCanvas) {
+    if (charts.status) charts.status.destroy();
+    const statusLabels = ['Completado', 'Planeado', 'Fallido', 'Saltado'];
+    const statusColors = [CHART_COLORS.accent, CHART_COLORS.warn, CHART_COLORS.danger, CHART_COLORS.skipped];
+    charts.status = new Chart(statusCanvas, {
+      type: 'bar',
+      data: {
+        labels: statusLabels,
+        datasets: [{
+          data: statusLabels.map(l => data.status[l] || 0),
+          backgroundColor: statusColors,
+          borderRadius: 3,
+          borderSkipped: false,
+          maxBarThickness: 26,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0a0a0a',
+            borderColor: CHART_COLORS.lineBright,
+            borderWidth: 1,
+            titleColor: CHART_COLORS.ink,
+            bodyColor: CHART_COLORS.accent,
+            padding: 10,
+            displayColors: false,
+          },
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: { color: CHART_COLORS.inkFaint, stepSize: 1, precision: 0 },
+            grid: { color: CHART_COLORS.line },
+            border: { display: false },
+          },
+          y: {
+            ticks: { color: CHART_COLORS.ink, font: { size: 11 } },
+            grid: { display: false },
+            border: { color: CHART_COLORS.line },
+          },
+        },
+      },
+    });
+  }
+
+  state.dashboard.rendered = true;
 }
 
 // =====================================================================
@@ -868,16 +1250,18 @@ async function loadAll() {
     const dot = document.getElementById('api-dot');
     const st = document.getElementById('api-status');
 
-    log('info', 'Lanzando fetch en paralelo: planeados + completados');
-    const [planned, past] = await Promise.all([
-      apiCall('getWorkouts', { status: 'Planeado', sort: 'date_asc' }),
-      apiCall('getWorkouts', { status: 'Completado', sort: 'date_desc' }),
-    ]);
+    // Single source of truth: all workouts, no status filter
+    const all = await apiCall('getWorkouts', { sort: 'date_asc' });
+    log('ok', `Recibidos ${all.length} workouts (todos los estados)`);
 
-    log('ok', `Recibidos · planeados: ${planned.length} · pasados: ${past.length}`);
-
-    state.planned = planned;
-    state.past = past;
+    state.allWorkouts = all;
+    // Derived lists
+    state.planned = all
+      .filter(w => w.status === 'Planeado')
+      .sort((a, b) => a.date.localeCompare(b.date));
+    state.past = all
+      .filter(w => w.status === 'Completado')
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     dot.classList.add('ok');
     dot.classList.remove('err');
@@ -886,6 +1270,12 @@ async function loadAll() {
 
     renderPlanned();
     renderPast();
+    renderMiniCalendar();
+
+    // Re-render dashboard if it was already shown
+    if (state.dashboard.rendered) {
+      renderDashboard();
+    }
 
     const ms = (performance.now() - t0).toFixed(0);
     log('ok', `loadAll completado en ${ms}ms`);
@@ -913,13 +1303,12 @@ async function loadAll() {
     const btn = document.getElementById('show-debug');
     if (btn) btn.addEventListener('click', openDebugPanel);
 
-    // Auto-open debug panel on error for mobile visibility
     openDebugPanel();
   }
 }
 
 // =====================================================================
-// ON-SCREEN DEBUG PANEL (mobile friendly — no console needed)
+// DEBUG PANEL
 // =====================================================================
 function ensureDebugPanel() {
   let panel = document.getElementById('debug-panel');
@@ -946,7 +1335,6 @@ function ensureDebugPanel() {
       await navigator.clipboard.writeText(txt);
       toast('Log copiado');
     } catch {
-      // Fallback: select the pre contents
       const body = panel.querySelector('#dbg-body');
       const range = document.createRange();
       range.selectNodeContents(body);
@@ -977,16 +1365,13 @@ function openDebugPanel() {
 // =============================================================
 // COACH VIRTUAL
 // =============================================================
-
-// ----- STATE -----
 state.coach = {
   loaded: false,
-  messages: [],   // { author, message, timestamp, metadata, rowNumber }
+  messages: [],
   sending: false,
   open: false,
 };
 
-// ----- DOM HELPERS -----
 function coachDom() {
   return {
     overlay: document.getElementById('coach-overlay'),
@@ -1001,28 +1386,23 @@ function coachDom() {
   };
 }
 
-// ----- OPEN / CLOSE OVERLAY -----
 function openCoach() {
   const { overlay, input } = coachDom();
   if (!overlay || state.coach.open) return;
-  log('coach', 'openCoach');
   state.coach.open = true;
   overlay.classList.add('open');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.classList.add('coach-open');
 
-  // Lazy load on first open
   if (!state.coach.loaded) {
     loadCoachHistory();
   } else {
-    // Scroll to bottom in case layout changed
     requestAnimationFrame(() => {
       const { list } = coachDom();
       if (list) list.scrollTop = list.scrollHeight;
     });
   }
 
-  // Focus input after animation settles (avoid viewport jumps on mobile)
   setTimeout(() => {
     if (input && window.innerWidth > 640) input.focus();
   }, 320);
@@ -1031,7 +1411,6 @@ function openCoach() {
 function closeCoach() {
   const { overlay } = coachDom();
   if (!overlay || !state.coach.open) return;
-  log('coach', 'closeCoach');
   state.coach.open = false;
   overlay.classList.remove('open');
   overlay.setAttribute('aria-hidden', 'true');
@@ -1043,10 +1422,8 @@ function toggleCoach() {
   else openCoach();
 }
 
-// ----- LOAD HISTORY -----
 async function loadCoachHistory() {
   if (state.coach.loaded) return;
-  log('coach', 'loadCoachHistory()');
   const { list } = coachDom();
   if (!list) return;
   list.innerHTML = `<div class="loading">Cargando conversación</div>`;
@@ -1061,7 +1438,6 @@ async function loadCoachHistory() {
   }
 }
 
-// ----- RENDER -----
 function renderCoachMessages() {
   const { list } = coachDom();
   if (!list) return;
@@ -1078,7 +1454,6 @@ function renderCoachMessages() {
   }
 
   list.innerHTML = msgs.map((m, idx) => renderMessage(m, idx)).join('');
-  // Scroll al final
   requestAnimationFrame(() => {
     list.scrollTop = list.scrollHeight;
   });
@@ -1179,11 +1554,9 @@ function summarizeProposal(p) {
   }
 }
 
-// ----- SEND MESSAGE -----
 async function sendCoachMessage(text) {
   if (!text || !text.trim() || state.coach.sending) return;
   const msg = text.trim();
-  log('coach', 'sendCoachMessage:', msg);
 
   state.coach.sending = true;
   const { input, send, list } = coachDom();
@@ -1191,7 +1564,6 @@ async function sendCoachMessage(text) {
   input.style.height = 'auto';
   send.disabled = true;
 
-  // Añadir mensaje optimista del usuario
   state.coach.messages.push({
     author: 'User',
     message: msg,
@@ -1200,7 +1572,6 @@ async function sendCoachMessage(text) {
   });
   renderCoachMessages();
 
-  // Indicador "escribiendo…"
   const typingEl = document.createElement('div');
   typingEl.className = 'typing';
   typingEl.innerHTML = '<span></span><span></span><span></span>';
@@ -1208,10 +1579,7 @@ async function sendCoachMessage(text) {
   list.scrollTop = list.scrollHeight;
 
   try {
-    const res = await apiCall('sendChatMessage', {}, { message: msg });
-    log('coach', 'respuesta coach:', res);
-
-    // Recargar historial para tener rowNumbers correctos
+    await apiCall('sendChatMessage', {}, { message: msg });
     await loadCoachHistoryForce();
   } catch (err) {
     logErr('sendCoachMessage', err);
@@ -1235,12 +1603,9 @@ async function loadCoachHistoryForce() {
   await loadCoachHistory();
 }
 
-// ----- APPLY / DISCARD PROPOSALS -----
 async function applyProposalAt(msgIdx) {
   const m = state.coach.messages[msgIdx];
   if (!m || !m.metadata || !Array.isArray(m.metadata.proposedActions)) return;
-  log('coach', 'applyProposalAt:', msgIdx, m.metadata.proposedActions);
-
   if (!confirm(`¿Aplicar ${m.metadata.proposedActions.length} cambio(s) a la rutina?`)) return;
 
   try {
@@ -1248,9 +1613,6 @@ async function applyProposalAt(msgIdx) {
       actions: m.metadata.proposedActions,
       chatRowNumber: m.rowNumber,
     });
-    log('coach', 'confirmActions result:', res);
-
-    // Comprobar errores
     const errors = (res.results || []).filter(r => !r.ok);
     if (errors.length > 0) {
       toast(`${errors.length} error(es) al aplicar`, true);
@@ -1258,12 +1620,8 @@ async function applyProposalAt(msgIdx) {
     } else {
       toast(`✓ ${res.executed} cambio(s) aplicado(s)`);
     }
-
-    // Marcar local como applied
     m.metadata.applied = true;
     renderCoachMessages();
-
-    // Recargar planeados / pasados para reflejar los cambios
     await loadAll();
   } catch (err) {
     logErr('applyProposalAt', err);
@@ -1274,12 +1632,10 @@ async function applyProposalAt(msgIdx) {
 function discardProposalAt(msgIdx) {
   const m = state.coach.messages[msgIdx];
   if (!m || !m.metadata) return;
-  log('coach', 'discardProposalAt:', msgIdx);
   m.metadata.discarded = true;
   renderCoachMessages();
 }
 
-// ----- CLEAR CHAT -----
 async function clearCoachChat() {
   if (!confirm('¿Borrar todo el historial de conversación? Esta acción no se puede deshacer.')) return;
   try {
@@ -1294,18 +1650,15 @@ async function clearCoachChat() {
   }
 }
 
-// ----- HANDLERS INSTALL -----
 function installCoachHandlers() {
-  log('info', 'installCoachHandlers');
-  const { form, input, clear, fab, closeBtn, backdrop, overlay } = coachDom();
-  if (!form) { log('warn', 'coach form not found'); return; }
+  const { form, input, clear, fab, closeBtn, backdrop } = coachDom();
+  if (!form) return;
 
   form.addEventListener('submit', e => {
     e.preventDefault();
     sendCoachMessage(input.value);
   });
 
-  // Enter para enviar, Shift+Enter para salto de línea
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1313,7 +1666,6 @@ function installCoachHandlers() {
     }
   });
 
-  // Autogrow
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 140) + 'px';
@@ -1321,26 +1673,18 @@ function installCoachHandlers() {
 
   if (clear) clear.addEventListener('click', clearCoachChat);
 
-  // ----- FAB + Overlay open/close -----
-  if (fab) {
-    fab.addEventListener('click', () => toggleCoach());
-  } else {
-    log('warn', 'coach FAB not found');
-  }
+  if (fab) fab.addEventListener('click', () => toggleCoach());
   if (closeBtn) closeBtn.addEventListener('click', () => closeCoach());
   if (backdrop) backdrop.addEventListener('click', () => closeCoach());
 
-  // ESC closes the overlay (but not if runner is on top)
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (!state.coach.open) return;
-    // Runner takes precedence — its own handler will close it
     const runner = document.getElementById('runner');
     if (runner && runner.classList.contains('open')) return;
     closeCoach();
   });
 
-  // Delegación para apply/discard (los botones se re-renderizan constantemente)
   document.addEventListener('click', e => {
     const applyBtn = e.target.closest('[data-coach-apply]');
     if (applyBtn) {
@@ -1362,7 +1706,8 @@ function installCoachHandlers() {
 // =====================================================================
 function bootstrap() {
   try {
-    log('info', 'bootstrap() · installGlobalHandlers + loadAll');
+    log('info', 'bootstrap()');
+    initMiniCalendar();
     installGlobalHandlers();
     installCoachHandlers();
     loadAll();
