@@ -23,29 +23,7 @@
       <span>EST. MMXXVI · MADRID</span>
       <span class="issue">VOL.2.5 (Flash)</span>
     </div>
-
-    <!-- ============ MINI CALENDAR STRIP ============ -->
-    <div class="mini-cal" id="mini-cal">
-      <div class="mini-cal-head">
-        <button class="mini-cal-nav" id="mini-cal-prev" aria-label="Mes anterior">‹</button>
-        <div class="mini-cal-title">
-          <span class="mini-cal-month" id="mini-cal-month">—</span>
-          <span class="mini-cal-year" id="mini-cal-year">—</span>
-        </div>
-        <button class="mini-cal-nav" id="mini-cal-next" aria-label="Mes siguiente">›</button>
-      </div>
-      <div class="mini-cal-weekdays">
-        <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
-      </div>
-      <div class="mini-cal-grid" id="mini-cal-grid"></div>
-      <div class="mini-cal-legend">
-        <span class="leg"><i class="sw done"></i>Hecho</span>
-        <span class="leg"><i class="sw planned"></i>Planeado</span>
-        <span class="leg"><i class="sw failed"></i>Fallido</span>
-        <span class="leg"><i class="sw skipped"></i>Saltado</span>
-      </div>
-    </div>
-
+    
     <div class="title-row">
       <h1 class="brand">
         Iron Log
@@ -56,16 +34,19 @@
   </header>
 
   <nav class="tabs">
-    <button id="tab-planned" class="active" data-view="planned">
-      <span class="num">01</span>Planeados
-    </button>
-    <button id="tab-dashboard" data-view="dashboard">
-      <span class="num">02</span>Dashboard
-    </button>
-    <button id="tab-past" data-view="past">
-      <span class="num">03</span>Pasados
-    </button>
-  </nav>
+  <button id="tab-planned" class="active" data-view="planned">
+    <span class="num">01</span>Planeados
+  </button>
+  <button id="tab-dashboard" data-view="dashboard">
+    <span class="num">02</span>Dashboard
+  </button>
+  <button id="tab-past" data-view="past">
+    <span class="num">03</span>Pasados
+  </button>
+  <button id="tab-calendar" data-view="calendar">
+    <span class="num">04</span>Calendario
+  </button>
+</nav>
 
   <div class="statusbar">
     <span class="dot" id="api-dot"></span>
