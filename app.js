@@ -439,6 +439,10 @@ function installGlobalHandlers() {
       if (btn.dataset.view === 'dashboard') {
         renderDashboard();
       }
+      // Re-render del calendario al abrir su tab (por si los datos han cambiado)
+      if (btn.dataset.view === 'calendar') {
+        renderMiniCalendar();
+      }
     });
   }
 
