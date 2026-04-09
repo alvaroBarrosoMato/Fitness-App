@@ -58,9 +58,9 @@ body::before {
 .app {
   position: relative;
   z-index: 2;
-  max-width: 780px;
+  max-width: 960px;   /* antes 780px — más aire en desktop */
   margin: 0 auto;
-  padding: 0 20px 120px;
+  padding: 0 24px 120px;
 }
 
 /* ============ HEADER ============ */
@@ -295,10 +295,30 @@ h1.brand .thin {
 .mini-cal-legend .sw.failed  { background: var(--danger); }
 .mini-cal-legend .sw.skipped { background: var(--skipped); }
 
+/* Calendario dentro de su propia vista — contenido y centrado */
+#view-calendar .mini-cal {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 18px 20px 16px;
+}
+#view-calendar .mini-cal-grid {
+  gap: 5px;
+}
+#view-calendar .mc-day {
+  font-size: 12px;
+  border-radius: 4px;
+}
+#view-calendar .mini-cal-month {
+  font-size: 26px;
+}
+#view-calendar .mini-cal-legend {
+  justify-content: center;
+}
+
 /* ============ TABS ============ */
 nav.tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);   /* antes repeat(3, 1fr) */
   border-bottom: 1px solid var(--line);
   margin-bottom: 28px;
   position: sticky;
@@ -1279,6 +1299,41 @@ nav.tabs button.active::after {
 .runner-dot.done { background: var(--accent); }
 
 /* ============ MOBILE TWEAKS ============ */
+/* ============ DESKTOP TWEAKS ============ */
+@media (min-width: 900px) {
+  .app {
+    padding: 0 32px 120px;
+  }
+  header.masthead {
+    padding: 40px 0 24px;
+  }
+  .title-row {
+    margin-top: 26px;
+  }
+  /* Dashboard aprovecha el ancho extra */
+  .kpi-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  .chart-wrap { height: 300px; }
+  .chart-wrap.small { height: 260px; }
+
+  /* Tabs un pelín más grandes */
+  nav.tabs button {
+    padding: 20px 8px;
+    font-size: 12px;
+  }
+
+  /* Calendario un pelín mayor en desktop pero sigue contenido */
+  #view-calendar .mini-cal {
+    max-width: 520px;
+  }
+}
+
+/* Pantallas muy anchas: el contenedor central ya tope a 960, solo afinamos tipografía */
+@media (min-width: 1200px) {
+  .app { max-width: 1040px; }
+}
+
 @media (max-width: 640px) {
   .chart-row { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
