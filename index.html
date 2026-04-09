@@ -145,6 +145,34 @@
     <div id="list-past"></div>
   </section>
 </div>
+<!-- ============ CALENDAR VIEW ============ -->
+<section class="view" id="view-calendar">
+  <div class="section-header">
+    <h2>Calendario</h2>
+    <div class="count">Vista mensual</div>
+  </div>
+
+  <div class="mini-cal" id="mini-cal">
+    <div class="mini-cal-head">
+      <button class="mini-cal-nav" id="mini-cal-prev" aria-label="Mes anterior">‹</button>
+      <div class="mini-cal-title">
+        <span class="mini-cal-month" id="mini-cal-month">—</span>
+        <span class="mini-cal-year" id="mini-cal-year">—</span>
+      </div>
+      <button class="mini-cal-nav" id="mini-cal-next" aria-label="Mes siguiente">›</button>
+    </div>
+    <div class="mini-cal-weekdays">
+      <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+    </div>
+    <div class="mini-cal-grid" id="mini-cal-grid"></div>
+    <div class="mini-cal-legend">
+      <span class="leg"><i class="sw done"></i>Hecho</span>
+      <span class="leg"><i class="sw planned"></i>Planeado</span>
+      <span class="leg"><i class="sw failed"></i>Fallido</span>
+      <span class="leg"><i class="sw skipped"></i>Saltado</span>
+    </div>
+  </div>
+</section>
 
 <!-- ============ COACH FAB (floating chat button) ============ -->
 <button class="coach-fab" id="coach-fab" aria-label="Abrir coach virtual" title="Coach virtual">
